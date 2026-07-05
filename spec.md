@@ -173,202 +173,6 @@ Required if Space endpoints or Collection endpoints are supported.
 * `GET /space/{space_id}/{collection_id}/quota` - Get the Quota report object for
   the specific Collection (not all Backends will support per-collection quotas however)
 
-### Error Handling
-
-This specification uses [[RFC9457]] Problem Details for HTTP APIs for error responses.
-
-* Error responses SHOULD be returned using the `application/problem+json` content type.
-* `type` and `title` properties are REQUIRED.
-* `errors` array with `{ detail, pointer }` objects is encouraged where appropriate.
-
-The `type` property is a URI identifying the _kind_ of problem (not the
-operation), and the same `type` is reused across operations. See Appendix
-[[[#error-type-registry]]] for the catalog of `type` URIs this specification
-defines, along with their typical status codes and a canonical example response
-for each kind.
-
-When returning errors, keep in mind the principle of **maximum privacy**:
-always "not found" instead of "not authorized". The _existence_ of a resource,
-collection, or space, is by itself an item of sensitive information.
-If a client makes an API call, and they have insufficient authorization to
-perform that action, a "not found" error (such as HTTP 404) MUST be returned,
-just as if that resource (or space or collection) did not exist.
-To put it another way, an unauthorized client (meaning, either not carrying
-any authorization in the request itself, or possessing insufficient permissions)
-MUST NOT be able to discover the existence of a resource based on the error
-response.
-
-This privacy rule governs failures that would otherwise reveal whether a target
-*exists*. It does not require masking failures that describe the *request
-itself*:
-
-* **Request and credential validation** failures: a malformed or missing
-  request body, a missing `Content-Type`, or a capability invocation or
-  signature that is present but malformed or fails to verify -- MAY be reported
-  with precise status codes and `type`s (for example [=invalid-request-body=],
-  [=missing-content-type=], [=invalid-authorization-header=], or
-  [=controller-mismatch=]). These responses describe the request and do not
-  disclose whether any particular target exists.
-* **Authorization** failures against an existing target: a well-formed request
-  that simply lacks sufficient privilege, including one that carries no
-  authorization at all, MUST be reported as [=not-found=] (HTTP 404),
-  indistinguishable from the target being absent.
-
-"List Spaces" operations are an exception to 404 masking: rather than returning
-an error, they return `200 OK` with only the subset of items the caller is
-authorized to see (an empty `items` array if none) -- see [[[#list-spaces-operation]]].
-
-### Caching
-
-TODO: Add caching semantics section.
-
-* `ETag`, `If-None-Match`, `Last-Modified`, and `Cache-Control` are encouraged
-* Set "no cache" headers for non-idempotent operations
-* On the read side, a Resource's `ETag` validator (see
-  [[[#conditional-requests]]]) drives ordinary HTTP caching: a `GET` carrying
-  `If-None-Match: "<etag>"` yields `304 Not Modified` when the Resource is
-  unchanged.
-
-### Conditional Requests
-
-Servers and backends MAY support [[RFC9110]] conditional requests to provide
-optimistic concurrency control on writes -- the mechanism that prevents the
-"lost update" problem, where two clients that both read version N of a Resource
-each write version N+1 and the second silently clobbers the first. A backend
-that supports this advertises the `conditional-writes` feature in its Backend
-description (see [[[#backend-data-model]]]); a client SHOULD use these
-preconditions only against a backend that advertises support.
-
-When supported, a Resource carries a strong **`ETag`** validator that changes
-whenever its stored content changes. Servers SHOULD return the `ETag` on
-`GET`/`HEAD` responses. A backend MAY derive the `ETag` from an internal
-monotonic version counter (such as an Encrypted Data Vault document
-`sequence`); the validator is opaque to clients.
-
-A state-changing request (`PUT` or `DELETE`) MAY carry a precondition:
-
-* **`If-Match: "<etag>"`** -- perform the write only if the Resource's current
-  `ETag` matches it (an "update-if-unchanged"). If it does not match, the server
-  MUST NOT perform the write and MUST respond with [=precondition-failed=]
-  (`412`).
-* **`If-None-Match: *`** -- perform the write only if the Resource does not yet
-  exist (a "create-if-absent"). If it already exists, the server MUST NOT
-  perform the write and MUST respond with [=precondition-failed=] (`412`).
-
-A server that supports conditional writes MUST evaluate the precondition
-atomically with the write (for example, under a per-Resource lock), so that
-two concurrent writers cannot both observe the same prior version and both
-succeed. An in-process per-Resource lock satisfies this for a single-instance
-server only; a horizontally-scaled deployment needs to coordinate the
-check-and-write across instances (e.g. an atomic compare-and-swap on the stored
-version or a shared lock). The reference implementation provides single-instance
-locking only. A client recovers from a `412` by re-reading the current Resource,
-re-applying its change on top of the new version, and retrying.
-
-As with [=id-conflict=], a server MUST verify the caller's authorization
-before evaluating a precondition, so a `412` is only ever observed by a caller
-already authorized to write the target; an under-authorized caller receives the
-merged [=not-found=] (`404`) instead, per the maximum-privacy rule in
-[[[#error-handling]]].
-
-A `412` arises only from an explicit `If-Match` / `If-None-Match`
-precondition header. It is deliberately distinct from the header-less `409`
-conflict kinds -- [=id-conflict=] (a `POST` create whose chosen `id` is already
-taken) and [=reserved-id=] -- which describe a conflict with current state where
-the client stated no precondition. Conditional requests are the versioned,
-header-driven concurrency mechanism; the `409` kinds are not.
-
-### Pagination
-
-The list operations -- [[[#list-spaces-operation]]], [[[#list-all-collections-operation]]],
-and [[[#list-collection-operation]]] -- return a collection of items in the
-common envelope (`url`, `totalItems`, `items`). A Space or Collection may hold
-more items than are practical to return in a single response, so servers MAY
-paginate these responses, returning one page of items at a time. Pagination
-is OPTIONAL: a server that returns every item in a single response (as the
-examples in those sections show) is conformant, and a client MUST be prepared
-for either behavior.
-
-This profile uses cursor-based (also called "keyset") pagination rather than
-numeric offsets. A cursor identifies a position in a stably ordered result set,
-so paging stays correct and cheap even as items are concurrently added or
-removed, and at any depth into a large collection.
-
-#### Ordering
-
-A paginated list operation MUST return items in a stable total order: an
-ordering that is deterministic and in which no two items compare equal. The
-default order is ascending by item `id` (which is unique within its parent, see
-[[[#identifiers]]]). A server MAY offer additional orderings, but every order it
-supports for pagination MUST be stable and total -- if the primary sort key is
-not unique (for example a timestamp), the server MUST break ties on a unique key
-(such as `id`) so that the combined order is total. This stable order is what a
-cursor seeks within; an unstable order cannot be paginated correctly.
-
-#### Requesting a page
-
-A client requests pagination with two OPTIONAL query parameters:
-
-* `limit` - the maximum number of items the client wants in the page, a
-  positive integer. A server applies its own default when `limit` is absent, and
-  MAY clamp an oversized `limit` down to a server maximum rather than rejecting
-  the request. A server MAY return fewer items than `limit` (including zero) and
-  still indicate more pages follow; clients MUST NOT treat a short page as the
-  end of the list (see `next`, below).
-* `cursor` - an opaque token, obtained from a prior page's `next` value (see
-  below), naming the position to continue from. A client MUST treat the cursor as
-  opaque: it MUST NOT construct, parse, or modify it, and MUST NOT carry a cursor
-  from one collection, ordering, or server to another. A server encodes whatever
-  it needs into the cursor to resume the ordered scan (typically the sort-key
-  value of the last item already returned).
-
-The first page is requested with no `cursor` (a bare `limit`, or neither
-parameter).
-
-#### The paginated response
-
-A paginated response carries the usual envelope, plus a `next` member when more
-items may follow:
-
-* `next` - a URL the client dereferences (with the same authorization) to
-  retrieve the following page. The server bakes the appropriate `cursor` (and
-  any `limit`) into this URL, so the client follows it without constructing query
-  parameters itself. `next` is present if and only if more items may follow;
-  its absence marks the last page. This presence/absence is the authoritative
-  end-of-list signal.
-* `totalItems` - when present, the total number of items in the entire
-  collection, not the number in the current page (the page count is simply the
-  length of `items`). Computing an exact total can be expensive at scale, so a
-  paginating server MAY omit `totalItems`. A client MUST NOT infer the number of
-  pages, or whether more pages exist, from `totalItems`; only `next` is
-  authoritative.
-
-A client consumes a multi-page list by following `next` from each response until
-a response omits it. A server SHOULD ensure that an item present throughout the
-traversal appears exactly once across the pages; an item added or removed
-concurrently with the traversal MAY or MAY NOT appear. (Snapshot consistency --
-a paginated traversal observing a single point in time -- is permitted but not
-required; a server MAY encode a snapshot identifier into the cursor to provide
-it.)
-
-A `cursor` that is malformed, or that a server can no longer honor (for example
-an expired snapshot), is rejected with an [=invalid-cursor=] (`400`) error. As
-with other request-validation failures, a server MUST verify the caller's
-authorization for the target before validating the cursor, so the error is
-only ever observed by a caller already authorized to list that target; an
-under-authorized caller receives the merged [=not-found=] (`404`) instead, per
-[[[#error-handling]]].
-
-#### Pagination parameters and authorization
-
-A capability authorizes a list [=target=] independent of which page is being
-read: a capability that authorizes listing a Space, Collection, or Spaces
-Repository authorizes retrieval of *every* page of that list. The `limit` and
-`cursor` parameters select a page within an already-authorized target; they do
-not narrow, widen, or otherwise change the [=target=] a capability must match
-(see [[[#root-capability]]]). A server MUST NOT require a distinct capability per
-page.
-
 ## Terminology
 
 <dl class="termlist definitions" data-sort="ascending">
@@ -436,6 +240,123 @@ authorization profile.
 
 See **Appendix [[[#was-authorization-profile-v0-1]]]** for a description of the
 default profile based on Authorization Capabilities (zCaps).
+
+## Error Handling
+
+This specification uses [[RFC9457]] Problem Details for HTTP APIs for error responses.
+
+* Error responses SHOULD be returned using the `application/problem+json` content type.
+* `type` and `title` properties are REQUIRED.
+* `errors` array with `{ detail, pointer }` objects is encouraged where appropriate.
+
+The `type` property is a URI identifying the _kind_ of problem (not the
+operation), and the same `type` is reused across operations. See Appendix
+[[[#error-type-registry]]] for the catalog of `type` URIs this specification
+defines, along with their typical status codes and a canonical example response
+for each kind.
+
+When returning errors, keep in mind the principle of **maximum privacy**:
+always "not found" instead of "not authorized". The _existence_ of a resource,
+collection, or space, is by itself an item of sensitive information.
+If a client makes an API call, and they have insufficient authorization to
+perform that action, a "not found" error (such as HTTP 404) MUST be returned,
+just as if that resource (or space or collection) did not exist.
+To put it another way, an unauthorized client (meaning, either not carrying
+any authorization in the request itself, or possessing insufficient permissions)
+MUST NOT be able to discover the existence of a resource based on the error
+response.
+
+This privacy rule governs failures that would otherwise reveal whether a target
+*exists*. It does not require masking failures that describe the *request
+itself*:
+
+* **Request and credential validation** failures: a malformed or missing
+  request body, a missing `Content-Type`, or a capability invocation or
+  signature that is present but malformed or fails to verify -- MAY be reported
+  with precise status codes and `type`s (for example [=invalid-request-body=],
+  [=missing-content-type=], [=invalid-authorization-header=], or
+  [=controller-mismatch=]). These responses describe the request and do not
+  disclose whether any particular target exists.
+* **Authorization** failures against an existing target: a well-formed request
+  that simply lacks sufficient privilege, including one that carries no
+  authorization at all, MUST be reported as [=not-found=] (HTTP 404),
+  indistinguishable from the target being absent.
+
+"List Spaces" operations are an exception to 404 masking: rather than returning
+an error, they return `200 OK` with only the subset of items the caller is
+authorized to see (an empty `items` array if none) -- see [[[#list-spaces-operation]]].
+
+## Common Behaviors
+
+This section defines HTTP mechanics that are shared across the operations in
+this specification, rather than belonging to any single endpoint: caching,
+conditional requests (optimistic concurrency control), and pagination of list
+responses.
+
+### Caching
+
+TODO: Add caching semantics section.
+
+* `ETag`, `If-None-Match`, `Last-Modified`, and `Cache-Control` are encouraged
+* Set "no cache" headers for non-idempotent operations
+* On the read side, a Resource's `ETag` validator (see
+  [[[#conditional-requests]]]) drives ordinary HTTP caching: a `GET` carrying
+  `If-None-Match: "<etag>"` yields `304 Not Modified` when the Resource is
+  unchanged.
+
+### Conditional Requests
+
+Servers and backends MAY support [[RFC9110]] conditional requests to provide
+optimistic concurrency control on writes -- the mechanism that prevents the
+"lost update" problem, where two clients that both read version N of a Resource
+each write version N+1 and the second silently clobbers the first. A backend
+that supports this advertises the `conditional-writes` feature in its Backend
+description (see [[[#backend-data-model]]]); a client SHOULD use these
+preconditions only against a backend that advertises support.
+
+When supported, a Resource carries a strong **`ETag`** validator that changes
+whenever its stored content changes. Servers SHOULD return the `ETag` on
+`GET`/`HEAD` responses. The validator is opaque to clients: how a backend
+derives it is a server-side concern (see [[[#backend-data-model]]]).
+
+A state-changing request (`PUT` or `DELETE`) MAY carry a precondition:
+
+* **`If-Match: "<etag>"`** -- perform the write only if the Resource's current
+  `ETag` matches it (an "update-if-unchanged"). If it does not match, the server
+  MUST NOT perform the write and MUST respond with [=precondition-failed=]
+  (`412`).
+* **`If-None-Match: *`** -- perform the write only if the Resource does not yet
+  exist (a "create-if-absent"). If it already exists, the server MUST NOT
+  perform the write and MUST respond with [=precondition-failed=] (`412`).
+
+A server that supports conditional writes MUST evaluate the precondition
+atomically with the write, so that two concurrent writers cannot both observe
+the same prior version and both succeed; how a backend achieves this atomicity
+is a server-side concern (see [[[#backend-data-model]]]). A client recovers
+from a `412` by re-reading the current Resource, re-applying its change on top
+of the new version, and retrying.
+
+As with [=id-conflict=], a server MUST verify the caller's authorization
+before evaluating a precondition, so a `412` is only ever observed by a caller
+already authorized to write the target; an under-authorized caller receives the
+merged [=not-found=] (`404`) instead, per the maximum-privacy rule in
+[[[#error-handling]]].
+
+A `412` arises only from an explicit `If-Match` / `If-None-Match`
+precondition header. It is deliberately distinct from the header-less `409`
+conflict kinds -- [=id-conflict=] (a `POST` create whose chosen `id` is already
+taken) and [=reserved-id=] -- which describe a conflict with current state where
+the client stated no precondition. Conditional requests are the versioned,
+header-driven concurrency mechanism; the `409` kinds are not.
+
+### Paginated List Responses
+
+The list operations -- [[[#list-spaces-operation]]], [[[#list-all-collections-operation]]],
+and [[[#list-collection-operation]]] -- MAY paginate their responses, returning
+one page of items at a time using the cursor-based profile defined in Appendix
+[[[#pagination]]]. Pagination is OPTIONAL: a server that returns every item in
+a single response is conformant, and a client MUST be prepared for either
+behavior.
 
 ## Spaces Repositories
 
@@ -2510,6 +2431,18 @@ Backend description properties:
   [[[#collection-data-model]]]): a non-secret declaration any authorized reader
   discovers from the Collection Description, while the keys stay in the client.
 
+A backend that advertises `conditional-writes` takes on the server-side half of
+the client contract in [[[#conditional-requests]]]. It MAY derive the `ETag`
+from an internal monotonic version counter (such as an Encrypted Data Vault
+document `sequence`); the validator is opaque to clients. It MUST evaluate a
+write's `If-Match` / `If-None-Match` precondition atomically with the write
+(for example, under a per-Resource lock), so that two concurrent writers cannot
+both observe the same prior version and both succeed. An in-process
+per-Resource lock satisfies this for a single-instance server only; a
+horizontally-scaled deployment needs to coordinate the check-and-write across
+instances (e.g. an atomic compare-and-swap on the stored version or a shared
+lock). The reference implementation provides single-instance locking only.
+
 <div class="ednote">
 The schema of a backend's connection configuration (server-internal
 connections vs OAuth-style setup flows for external providers) is not yet
@@ -2730,6 +2663,104 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   is not authorized to read the quota report.
 * [=unsupported-operation=] (501) -- the Collection's backend does not support
   per-collection quota accounting.
+
+</section>
+
+<section class="appendix">
+
+## Pagination
+
+This appendix is normative. It defines the full pagination profile summarized
+in [[[#paginated-list-responses]]].
+
+The list operations -- [[[#list-spaces-operation]]], [[[#list-all-collections-operation]]],
+and [[[#list-collection-operation]]] -- return a collection of items in the
+common envelope (`url`, `totalItems`, `items`). A Space or Collection may hold
+more items than are practical to return in a single response, so servers MAY
+paginate these responses, returning one page of items at a time. Pagination
+is OPTIONAL: a server that returns every item in a single response (as the
+examples in those sections show) is conformant, and a client MUST be prepared
+for either behavior.
+
+This profile uses cursor-based (also called "keyset") pagination rather than
+numeric offsets. A cursor identifies a position in a stably ordered result set,
+so paging stays correct and cheap even as items are concurrently added or
+removed, and at any depth into a large collection.
+
+### Ordering
+
+A paginated list operation MUST return items in a stable total order: an
+ordering that is deterministic and in which no two items compare equal. The
+default order is ascending by item `id` (which is unique within its parent, see
+[[[#identifiers]]]). A server MAY offer additional orderings, but every order it
+supports for pagination MUST be stable and total -- if the primary sort key is
+not unique (for example a timestamp), the server MUST break ties on a unique key
+(such as `id`) so that the combined order is total. This stable order is what a
+cursor seeks within; an unstable order cannot be paginated correctly.
+
+### Requesting a page
+
+A client requests pagination with two OPTIONAL query parameters:
+
+* `limit` - the maximum number of items the client wants in the page, a
+  positive integer. A server applies its own default when `limit` is absent, and
+  MAY clamp an oversized `limit` down to a server maximum rather than rejecting
+  the request. A server MAY return fewer items than `limit` (including zero) and
+  still indicate more pages follow; clients MUST NOT treat a short page as the
+  end of the list (see `next`, below).
+* `cursor` - an opaque token, obtained from a prior page's `next` value (see
+  below), naming the position to continue from. A client MUST treat the cursor as
+  opaque: it MUST NOT construct, parse, or modify it, and MUST NOT carry a cursor
+  from one collection, ordering, or server to another. A server encodes whatever
+  it needs into the cursor to resume the ordered scan (typically the sort-key
+  value of the last item already returned).
+
+The first page is requested with no `cursor` (a bare `limit`, or neither
+parameter).
+
+### The paginated response
+
+A paginated response carries the usual envelope, plus a `next` member when more
+items may follow:
+
+* `next` - a URL the client dereferences (with the same authorization) to
+  retrieve the following page. The server bakes the appropriate `cursor` (and
+  any `limit`) into this URL, so the client follows it without constructing query
+  parameters itself. `next` is present if and only if more items may follow;
+  its absence marks the last page. This presence/absence is the authoritative
+  end-of-list signal.
+* `totalItems` - when present, the total number of items in the entire
+  collection, not the number in the current page (the page count is simply the
+  length of `items`). Computing an exact total can be expensive at scale, so a
+  paginating server MAY omit `totalItems`. A client MUST NOT infer the number of
+  pages, or whether more pages exist, from `totalItems`; only `next` is
+  authoritative.
+
+A client consumes a multi-page list by following `next` from each response until
+a response omits it. A server SHOULD ensure that an item present throughout the
+traversal appears exactly once across the pages; an item added or removed
+concurrently with the traversal MAY or MAY NOT appear. (Snapshot consistency --
+a paginated traversal observing a single point in time -- is permitted but not
+required; a server MAY encode a snapshot identifier into the cursor to provide
+it.)
+
+A `cursor` that is malformed, or that a server can no longer honor (for example
+an expired snapshot), is rejected with an [=invalid-cursor=] (`400`) error. As
+with other request-validation failures, a server MUST verify the caller's
+authorization for the target before validating the cursor, so the error is
+only ever observed by a caller already authorized to list that target; an
+under-authorized caller receives the merged [=not-found=] (`404`) instead, per
+[[[#error-handling]]].
+
+### Pagination parameters and authorization
+
+A capability authorizes a list [=target=] independent of which page is being
+read: a capability that authorizes listing a Space, Collection, or Spaces
+Repository authorizes retrieval of *every* page of that list. The `limit` and
+`cursor` parameters select a page within an already-authorized target; they do
+not narrow, widen, or otherwise change the [=target=] a capability must match
+(see [[[#root-capability]]]). A server MUST NOT require a distinct capability per
+page.
 
 </section>
 
