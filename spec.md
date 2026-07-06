@@ -11,8 +11,8 @@ This specification aims to provide:
 * A tiered composable **data model** for storage primitives
 * An **HTTP API** binding for storage operations (other bindings, such as JSON-RPC
   or CBOR-based RPCs, are left for future work).
-* An authorization profile for use with this storage, see **Appendix
-  [[[#was-authorization-profile-v0-1]]]**.
+* An authorization profile for use with this storage, see
+  [[[#was-authorization-profile-v0-1]]].
 
 ### Use Cases
 
@@ -214,6 +214,40 @@ Required if Space endpoints or Collection endpoints are supported.
     details.</dd>
 </dl>
 
+## Identifiers
+
+### Identifier Required Properties
+
+Space, Collection, and Resource identifiers used in this specification are
+required to have the following properties.
+
+1. **URL-safety** - All characters in a given identifier MUST be URL-safe.
+2. **Uniqueness** - All identifiers MUST be unique within a given container.
+   That is: Space `id`s (denoted by `{space_id}` in URL templates) MUST be
+   unique within a given [=server=], Collection `id`s (denoted by `{collection_id}`
+   in URL templates) MUST be unique within a given Space, and Resource `id`s
+   (denoted by `{resource_id}` in URL templates) MUST be unique within a given
+   Collection.
+
+### Identifier Length and Format
+
+Identifier length limits are currently left to the implementer. However,
+implementations SHOULD limit identifier length to their appropriate use case.
+
+Identifier format constraints are currently left to the implementer. Common
+identifier formats include:
+
+* Random IDs (either UUIDv4 with hyphens or using a compact encoding).
+  Not recommended for _extremely_ high throughput use cases, since
+  the clients or servers that are generating them might be limited by available
+  device entropy.
+* Semi-random Time-sortable IDs (UUIDv7). Useful for cases involving logs,
+  histories, feeds, and other situations where sorting by time is desirable.
+* Content-based IDs (CIDs). Useful for data deduplication use cases.
+* Human-readable IDs. Some use cases might require human-readable identifiers
+  (for example, a user hosting a blog in their space might want meaningful collection
+  and resource IDs such as `/posts/2020-01-01-hello-world`).
+
 ## Authorization
 
 The ability to do cross-domain, operator-independent, standardized cloud storage
@@ -238,8 +272,322 @@ to be multiple profiles and specs that could be used to perform WAS API
 calls. However, to start with, this specification will focus on a single minimal
 authorization profile.
 
-See **Appendix [[[#was-authorization-profile-v0-1]]]** for a description of the
-default profile based on Authorization Capabilities (zCaps).
+### WAS Authorization Profile v0.1
+
+Like many authorization specifications, the W.A.S. Authorization Profile tries
+to address opposing tensions. On the one hand, to cover the full range of use
+cases, it needs to be delegatable, revocable, secure, flexible, and thus
+capability based. On the other hand, for ease of implementation and adoption,
+and for maximum developer usability, the profile must make the most common
+operations as simple and friction free as possible.
+
+To that end, the profile offers the following layered mechanisms.
+
+1. **Root Access**: For basic admin CRUD operations, use the space's `controller`
+   DID directly to sign API calls with HTTP Signatures.
+2. **Public Read**: For the common "public read" use case (the typical web
+   publishing workflow, where a site or a file is shared for anyone to access
+   via an HTTP GET), use the simple `{ "type": "PublicCanRead" }` WAS
+   Authorization syntax, see below.
+3. **Advanced Delegatable Capabilities** ("anyone with the link..." style):
+   Use zCaps [Authorization Capabilities v0.3](https://w3c-ccg.github.io/zcap-spec/)
+4. **Policy Based Access Control** (including the familiar "share with this list
+   of people or groups" style): Use the space's `linkset` property to point to
+   a linkset that includes a URL to an access control policy document.
+
+#### Authorization Specification Dependencies at a Glance
+
+The initial W.A.S. Authorization Profile uses the following specifications.
+
+1. Identity (for controllers or clients/agents): [DID 1.0](https://www.w3.org/TR/did-1.0/)
+2. Capability data model: [Authorization Capabilities for Linked Data v0.3](https://w3c-ccg.github.io/zcap-spec/)
+3. Protocol for obtaining authorization: Out of scope (implementers are encouraged
+   to use VC-API, OpenId4VP, OAuth2, or GNAP, as appropriate)
+4. Proof of Possession / authorization invocation: HTTP Signatures.
+   MUST - [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html),
+   MAY - [HTTP Signatures (Cavage draft 12)](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures)
+5. Request body integrity: the `Digest` header, bound to the request
+   signature -- see [[[#request-body-integrity-digest-header]]]
+6. Access Control / Policy language data model: see
+   [[[#access-control-policies]]] (`PublicCanRead` is the only normative type for
+   v0.1)
+
+#### Space `controller` and the Root of Trust
+
+Conceptually, the space's controller serves as the root of trust and authorization
+for any operations on the space or its collections or resources.
+That is, any operation requiring an authorization MUST provide a chain of proof
+all the way to the space controller, by one of the following:
+
+1. Direct: Provide a root capability invoked directly by the controller, or
+2. Delegated: Invoke a capability delegated to some other agent by the controller, or
+3. Matching Policy: (if using any kind of access control policy mechanism) Match
+   an authorization policy specified in the `linkset` property of the space. This
+   resource is related to the space controller because initially, it can only be
+   modified either by the controller or an authorized party delegated to by the
+   controller.
+
+Space `controller`s MUST be in the form of a [DID](https://www.w3.org/TR/did-1.0/).
+
+For minimal compatibility, all WAS implementations MUST support the
+[`did:key` DID Method](https://w3c-ccg.github.io/did-key-spec/), using the
+Multikey encoding of `Ed25519` elliptic curve keys, as specified in the
+[Multikey section of the CID spec](https://www.w3.org/TR/cid-1.0/#Multikey)
+as the space `controller`.
+
+When a space is created via an HTTP [POST](#http-api-post-spaces) or
+[PUT](#http-api-put-space-space_id) operation, the controller for that space
+is set explicitly. That is, a client specifies the `controller` as part of the
+payload of the PUT or POST create space request, and the server MUST verify
+that the invocation is authorized by that `controller`, by one of the first two
+mechanisms above: either directly -- the signing key (key ID) used in the
+headers is authorized in the `capabilityInvocation` section of the
+`controller`'s DID document -- or via a capability delegated by the
+`controller` to the signing DID. (The third mechanism, matching policy, does
+not apply: no Space, and therefore no policy, exists yet.)
+
+See below in the [HTTP POST](#http-api-post-spaces) sections for examples of
+`controller` determination and verification.
+
+#### Performing Authorized API Calls
+
+Unless otherwise explicitly allowed via access control policy (see below),
+all W.A.S. API calls require authorization.
+
+This can be done in one of two ways:
+
+1. (for admin-like root access) Use the `controller` DID directly to sign
+   HTTP API requests using the HTTP Signatures specification, invoking the
+   target's [=root capability=].
+2. (for advanced delegatable use cases) Use HTTP Signatures in combination
+   with [Authorization Capabilities v0.3](https://w3c-ccg.github.io/zcap-spec/),
+   and include a capability invocation header in the API request.
+
+Throughout this specification, the request examples abbreviate this header as a
+placeholder, `Authorization: ...`, rather than reproducing a full signature or
+capability invocation. In each case it stands for a credential constructed as
+described in [[[#performing-authorized-api-calls]]].
+
+#### Request Body Integrity (Digest Header)
+
+When an authorized request carries a body (a Resource write, a Space create,
+and so on), this profile binds the body to the request's HTTP Signature so
+that the payload cannot be substituted without invalidating the signature:
+
+1. The client MUST include a `Digest` header whose value is the hash of the
+   request body, carried as a `mh` (multihash) parameter: a multibase
+   base64url-encoded (`u` prefix) multihash of the body's SHA-256 digest
+   (Multihash and Multibase as defined in the
+   [CID 1.0 specification](https://www.w3.org/TR/cid-1.0/)). For example:
+
+   ```http
+   Digest: mh=uEiCPO-qYr-z0GYV5F75-N1l8Rhjv4xIkKZsnbTZeZ7emSA
+   ```
+
+2. The `content-type` and `digest` headers MUST be included in the
+   signature's covered (signed) headers list, alongside `(key-id)`,
+   `(created)`, `(expires)`, `(request-target)`, `host`, and
+   `capability-invocation`.
+3. For any request that carries a `Content-Type` header, the server MUST
+   require `digest` among the covered headers, and SHOULD independently
+   recompute the digest of the received body and compare it to the `Digest`
+   header value. A missing, malformed, or non-matching `Digest` on a request
+   with a body is rejected with an [=invalid-authorization-header=] (400)
+   error.
+
+Bodyless requests (`GET`, `HEAD`, `DELETE`) carry no `Digest` header.
+
+Example authorized write request, showing the `Digest` header and the
+covered headers list (the space's [=controller=] invoking the
+[=root capability=] for the target; line breaks within the `Authorization`
+header are for display only):
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/photos/sunset.png HTTP/1.1
+Host: example.com
+Content-Type: image/png
+Digest: mh=uEiCPO-qYr-z0GYV5F75-N1l8Rhjv4xIkKZsnbTZeZ7emSA
+Capability-Invocation: zcap id="urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fphotos%2Fsunset.png",action="PUT"
+Authorization: Signature keyId="did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW#z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
+  headers="(key-id) (created) (expires) (request-target) host capability-invocation content-type digest",
+  signature="6GoRQ+rW69wBhNyERkafAXEZXZArezHvGRNUWC0HNI4Ss1xAiiMHdayS5aA2R6hLuYRNw6h9J9eCmQVMuHE1Bw==",
+  created="1758150502",expires="1758151102"
+
+...binary PNG bytes...
+```
+
+<div class="ednote">
+**Digest vs Content-Digest.** The `Digest` header used by this profile
+descends from [[RFC3230]] (Instance Digests in HTTP). [[RFC9530]] (Digest
+Fields) obsoletes RFC 3230 and replaces `Digest` with `Content-Digest` /
+`Repr-Digest`. The current WAS implementation stack uses the legacy header
+with a multihash value; migration to `Content-Digest` (alongside the move to
+[[RFC9421]] HTTP Message Signatures) is a future direction for this profile.
+</div>
+
+#### Authorization Actions and the Root Capability
+
+A capability invocation names an [=action=] that the invoked capability must
+permit. WAS uses the uppercase HTTP method names as its action vocabulary:
+
+* <dfn id="get-action">`GET`</dfn> -- read a Space, Collection, or Resource. A
+  `HEAD` request is authorized as a `GET`.
+* <dfn id="post-action">`POST`</dfn> -- create a child item in a container (add a
+  Resource to a Collection, a Collection to a Space, or a Space to the Spaces
+  Repository).
+* <dfn id="put-action">`PUT`</dfn> -- create-by-id or replace a Space,
+  Collection, or Resource.
+* <dfn id="delete-action">`DELETE`</dfn> -- delete a Space, Collection, or
+  Resource.
+
+A request is authorized by a capability when all the following hold:
+
+1. the capability's `invocationTarget` matches the request's [=target=] -- the
+   full request URL (scheme, host, port, and path);
+2. the capability's `allowedAction` includes the request's action (the HTTP
+   method); and
+3. the invocation is signed by a key the capability authorizes, carried as a
+   valid HTTP Signature over the request (see
+   [[[#performing-authorized-api-calls]]]).
+
+##### Root Capability
+
+Every [=target=] has an implied **root capability** whose `controller` is the
+Space's [=controller=]. It is identified by the URI `urn:zcap:root:` followed by
+the percent-encoded target URL:
+
+```json
+{
+  "@context": "https://w3id.org/zcap/v1",
+  "id": "urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fmessages%2Fhello-world",
+  "invocationTarget": "https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world",
+  "controller": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW"
+}
+```
+
+The Space [=controller=] MAY invoke the root capability directly -- signing the
+request with a key listed in the `capabilityInvocation` section of the
+controller's DID document -- to perform any operation. This is the "root access"
+path. All other authorized access derives from a capability delegated, directly
+or transitively, from this root.
+
+##### Delegation
+
+To grant another agent access, the [=controller=] (or any agent holding a
+sufficiently broad capability) delegates a capability that names the grantee as
+its new `controller`, the `invocationTarget` to scope it to, and the
+`allowedAction`s to permit. A delegation MAY set an `expires` time. For example,
+granting another DID read-only access to a single Collection:
+
+```json
+{
+  "@context": "https://w3id.org/zcap/v1",
+  "id": "urn:uuid:6c9f3a1e-2b4d-4f8a-9c1e-7d2b3a4c5e6f",
+  "parentCapability": "urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fmessages%2F",
+  "invocationTarget": "https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/",
+  "controller": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "allowedAction": ["GET"],
+  "expires": "2026-12-31T23:59:59Z",
+  "proof": { "...": "delegation proof signed by the parent capability's controller" }
+}
+```
+
+The delegated capability is handed to the recipient out of band. The recipient
+invokes it by signing a request with their own key and including the capability
+in the `Capability-Invocation` header.
+
+#### Specifying Access Policy With Space Link Sets
+
+To set access control policy for a space, use the `linkset` property.
+
+Example (fetching a space's link set):
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/linkset HTTP/1.1
+Host: example.com
+Accept: application/linkset+json
+Authorization: ...
+```
+
+Response:
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/linkset+json
+
+{
+  "linkset": [
+    {
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
+      "https://wallet.storage/spec#policy": [
+        { 
+          "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
+          "type": "application/json"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Example (fetching a specific policy document from the link set):
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy HTTP/1.1
+Host: example.com
+Authorization: ...
+```
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/json
+
+{ "type": "PublicCanRead" }
+```
+
+#### Access Control Policies
+
+Capabilities answer the question "does the caller hold a credential that grants
+this action?" Access control *policies* answer the complementary question
+"does this target grant this action to callers in general (or to a named set of
+principals)?" Policies are how a [=controller=] makes a target public-readable
+(or, in future profiles, shares it with a list of people or groups) without
+having to issue a capability to each caller.
+
+A policy is a JSON document with a required `type` property, stored at the
+[=policy=] auxiliary resource of a Space, Collection, or Resource and
+discoverable via the [=policy=] linkset relation (see [[[#space-linkset]]] and
+[[[#collection-linkset]]]).
+
+**Evaluation contract:**
+
+* **Capability first, policy second.** A request is first checked against any
+  capability invocation it carries. The effective policy is consulted only as a
+  fallback, and it can only **broaden** access -- a policy never denies a caller
+  who presents a valid capability.
+* **Fail-closed.** An absent policy, or a policy whose `type` an implementation
+  does not recognize, grants nothing.
+* **Most-specific-wins inheritance.** The effective policy for a target is the
+  one set at the most specific level that has a policy document: a Resource
+  policy overrides a Collection policy, which overrides a Space policy.
+* **Access kind.** For policy evaluation, the request action is reduced to a
+  coarse access kind: [=GET=] (and `HEAD`) is a `read`; [=POST=], [=PUT=], and
+  [=DELETE=] are a `write`.
+
+##### `PublicCanRead`
+
+For v0.1, the only normative policy `type` is `PublicCanRead`:
+
+```json
+{ "type": "PublicCanRead" }
+```
+
+It grants the `read` access kind to any caller (including unauthenticated ones)
+and grants no write access. This is the canonical "public read" pattern -- for
+example, hosting an HTML file or an image that anyone may `GET`, while writes
+still require a capability. Setting it on a Space makes the whole Space
+public-readable (subject to any more specific Collection or Resource policy);
+setting it on a single Resource exposes only that Resource.
 
 ## Error Handling
 
@@ -848,7 +1196,7 @@ Collection properties (user-writable):
 * `id` - A unique collection identifier (within a given space). Created by the
   server if not provided. Note: the `{collection_id}` template parameter used in
   URL templates in this spec MUST match that collection's `id` property.
-  See Appendix [[[#identifiers]]] for additional constraints.
+  See [[[#identifiers]]] for additional constraints.
 * `type` - An array of strings, MUST include the type `Collection`. As with a
   Space's `type`, the array SHOULD be lexically sorted for a canonical, stable
   serialization.
@@ -1724,43 +2072,6 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
-<section class="appendix">
-
-## Identifiers
-
-### Identifier Required Properties
-
-Space, Collection, and Resource identifiers used in this specification are
-required to have the following properties.
-
-1. **URL-safety** - All characters in a given identifier MUST be URL-safe.
-2. **Uniqueness** - All identifiers MUST be unique within a given container.
-   That is: Space `id`s (denoted by `{space_id}` in URL templates) MUST be
-   unique within a given [=server=], Collection `id`s (denoted by `{collection_id}`
-   in URL templates) MUST be unique within a given Space, and Resource `id`s
-   (denoted by `{resource_id}` in URL templates) MUST be unique within a given
-   Collection.
-
-### Identifier Length and Format
-
-Identifier length limits are currently left to the implementer. However,
-implementations SHOULD limit identifier length to their appropriate use case.
-
-Identifier format constraints are currently left to the implementer. Common
-identifier formats include:
-
-* Random IDs (either UUIDv4 with hyphens or using a compact encoding).
-  Not recommended for _extremely_ high throughput use cases, since
-  the clients or servers that are generating them might be limited by available
-  device entropy.
-* Semi-random Time-sortable IDs (UUIDv7). Useful for cases involving logs,
-  histories, feeds, and other situations where sorting by time is desirable.
-* Content-based IDs (CIDs). Useful for data deduplication use cases.
-* Human-readable IDs. Some use cases might require human-readable identifiers
-  (for example, a user hosting a blog in their space might want meaningful collection
-  and resource IDs such as `/posts/2020-01-01-hello-world`).
-</section>
-
 <section class="appendix informative">
 
 ## Goals and Requirements
@@ -1906,321 +2217,6 @@ some use cases do not permit relying on encryption only for access control.
 Instead, a _combination_ of encryption and authorization enforcement by
 minimally trusted storage servers is required.
 
-</section>
-
-<section class="appendix">
-
-## WAS Authorization Profile v0.1
-
-Like many authorization specifications, the W.A.S. Authorization Profile tries
-to address opposing tensions. On the one hand, to cover the full range of use
-cases, it needs to be delegatable, revocable, secure, flexible, and thus
-capability based. On the other hand, for ease of implementation and adoption,
-and for maximum developer usability, the profile must make the most common
-operations as simple and friction free as possible.
-
-To that end, the profile offers the following layered mechanisms.
-
-1. **Root Access**: For basic admin CRUD operations, use the space's `controller`
-   DID directly to sign API calls with HTTP Signatures.
-2. **Public Read**: For the common "public read" use case (the typical web
-   publishing workflow, where a site or a file is shared for anyone to access
-   via an HTTP GET), use the simple `{ "type": "PublicCanRead" }` WAS
-   Authorization syntax, see below.
-3. **Advanced Delegatable Capabilities** ("anyone with the link..." style):
-   Use zCaps [Authorization Capabilities v0.3](https://w3c-ccg.github.io/zcap-spec/)
-4. **Policy Based Access Control** (including the familiar "share with this list
-   of people or groups" style): Use the space's `linkset` property to point to
-   a linkset that includes a URL to an access control policy document.
-
-### Authorization Specification Dependencies at a Glance
-
-The initial W.A.S. Authorization Profile uses the following specifications.
-
-1. Identity (for controllers or clients/agents): [DID 1.0](https://www.w3.org/TR/did-1.0/)
-2. Capability data model: [Authorization Capabilities for Linked Data v0.3](https://w3c-ccg.github.io/zcap-spec/)
-3. Protocol for obtaining authorization: Out of scope (implementers are encouraged
-   to use VC-API, OpenId4VP, OAuth2, or GNAP, as appropriate)
-4. Proof of Possession / authorization invocation: HTTP Signatures.
-   MUST - [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html),
-   MAY - [HTTP Signatures (Cavage draft 12)](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures)
-5. Request body integrity: the `Digest` header, bound to the request
-   signature -- see [[[#request-body-integrity-digest-header]]]
-6. Access Control / Policy language data model: see
-   [[[#access-control-policies]]] (`PublicCanRead` is the only normative type for
-   v0.1)
-
-### Space `controller` and the Root of Trust
-
-Conceptually, the space's controller serves as the root of trust and authorization
-for any operations on the space or its collections or resources.
-That is, any operation requiring an authorization MUST provide a chain of proof
-all the way to the space controller, by one of the following:
-
-1. Direct: Provide a root capability invoked directly by the controller, or
-2. Delegated: Invoke a capability delegated to some other agent by the controller, or
-3. Matching Policy: (if using any kind of access control policy mechanism) Match
-   an authorization policy specified in the `linkset` property of the space. This
-   resource is related to the space controller because initially, it can only be
-   modified either by the controller or an authorized party delegated to by the
-   controller.
-
-Space `controller`s MUST be in the form of a [DID](https://www.w3.org/TR/did-1.0/).
-
-For minimal compatibility, all WAS implementations MUST support the
-[`did:key` DID Method](https://w3c-ccg.github.io/did-key-spec/), using the
-Multikey encoding of `Ed25519` elliptic curve keys, as specified in the
-[Multikey section of the CID spec](https://www.w3.org/TR/cid-1.0/#Multikey)
-as the space `controller`.
-
-When a space is created via an HTTP [POST](#http-api-post-spaces) or
-[PUT](#http-api-put-space-space_id) operation, the controller for that space
-is set explicitly. That is, a client specifies the `controller` as part of the
-payload of the PUT or POST create space request, and the server MUST verify
-that the invocation is authorized by that `controller`, by one of the first two
-mechanisms above: either directly -- the signing key (key ID) used in the
-headers is authorized in the `capabilityInvocation` section of the
-`controller`'s DID document -- or via a capability delegated by the
-`controller` to the signing DID. (The third mechanism, matching policy, does
-not apply: no Space, and therefore no policy, exists yet.)
-
-See below in the [HTTP POST](#http-api-post-spaces) sections for examples of
-`controller` determination and verification.
-
-### Performing Authorized API Calls
-
-Unless otherwise explicitly allowed via access control policy (see below),
-all W.A.S. API calls require authorization.
-
-This can be done in one of two ways:
-
-1. (for admin-like root access) Use the `controller` DID directly to sign
-   HTTP API requests using the HTTP Signatures specification, invoking the
-   target's [=root capability=].
-2. (for advanced delegatable use cases) Use HTTP Signatures in combination
-   with [Authorization Capabilities v0.3](https://w3c-ccg.github.io/zcap-spec/),
-   and include a capability invocation header in the API request.
-
-### Request Body Integrity (Digest Header)
-
-When an authorized request carries a body (a Resource write, a Space create,
-and so on), this profile binds the body to the request's HTTP Signature so
-that the payload cannot be substituted without invalidating the signature:
-
-1. The client MUST include a `Digest` header whose value is the hash of the
-   request body, carried as a `mh` (multihash) parameter: a multibase
-   base64url-encoded (`u` prefix) multihash of the body's SHA-256 digest
-   (Multihash and Multibase as defined in the
-   [CID 1.0 specification](https://www.w3.org/TR/cid-1.0/)). For example:
-
-   ```http
-   Digest: mh=uEiCPO-qYr-z0GYV5F75-N1l8Rhjv4xIkKZsnbTZeZ7emSA
-   ```
-
-2. The `content-type` and `digest` headers MUST be included in the
-   signature's covered (signed) headers list, alongside `(key-id)`,
-   `(created)`, `(expires)`, `(request-target)`, `host`, and
-   `capability-invocation`.
-3. For any request that carries a `Content-Type` header, the server MUST
-   require `digest` among the covered headers, and SHOULD independently
-   recompute the digest of the received body and compare it to the `Digest`
-   header value. A missing, malformed, or non-matching `Digest` on a request
-   with a body is rejected with an [=invalid-authorization-header=] (400)
-   error.
-
-Bodyless requests (`GET`, `HEAD`, `DELETE`) carry no `Digest` header.
-
-Example authorized write request, showing the `Digest` header and the
-covered headers list (the space's [=controller=] invoking the
-[=root capability=] for the target; line breaks within the `Authorization`
-header are for display only):
-
-```http
-PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/photos/sunset.png HTTP/1.1
-Host: example.com
-Content-Type: image/png
-Digest: mh=uEiCPO-qYr-z0GYV5F75-N1l8Rhjv4xIkKZsnbTZeZ7emSA
-Capability-Invocation: zcap id="urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fphotos%2Fsunset.png",action="PUT"
-Authorization: Signature keyId="did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW#z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
-  headers="(key-id) (created) (expires) (request-target) host capability-invocation content-type digest",
-  signature="6GoRQ+rW69wBhNyERkafAXEZXZArezHvGRNUWC0HNI4Ss1xAiiMHdayS5aA2R6hLuYRNw6h9J9eCmQVMuHE1Bw==",
-  created="1758150502",expires="1758151102"
-
-...binary PNG bytes...
-```
-
-<div class="ednote">
-**Digest vs Content-Digest.** The `Digest` header used by this profile
-descends from [[RFC3230]] (Instance Digests in HTTP). [[RFC9530]] (Digest
-Fields) obsoletes RFC 3230 and replaces `Digest` with `Content-Digest` /
-`Repr-Digest`. The current WAS implementation stack uses the legacy header
-with a multihash value; migration to `Content-Digest` (alongside the move to
-[[RFC9421]] HTTP Message Signatures) is a future direction for this profile.
-</div>
-
-### Authorization Actions and the Root Capability
-
-A capability invocation names an [=action=] that the invoked capability must
-permit. WAS uses the uppercase HTTP method names as its action vocabulary:
-
-* <dfn id="get-action">`GET`</dfn> -- read a Space, Collection, or Resource. A
-  `HEAD` request is authorized as a `GET`.
-* <dfn id="post-action">`POST`</dfn> -- create a child item in a container (add a
-  Resource to a Collection, a Collection to a Space, or a Space to the Spaces
-  Repository).
-* <dfn id="put-action">`PUT`</dfn> -- create-by-id or replace a Space,
-  Collection, or Resource.
-* <dfn id="delete-action">`DELETE`</dfn> -- delete a Space, Collection, or
-  Resource.
-
-A request is authorized by a capability when all the following hold:
-
-1. the capability's `invocationTarget` matches the request's [=target=] -- the
-   full request URL (scheme, host, port, and path);
-2. the capability's `allowedAction` includes the request's action (the HTTP
-   method); and
-3. the invocation is signed by a key the capability authorizes, carried as a
-   valid HTTP Signature over the request (see
-   [[[#performing-authorized-api-calls]]]).
-
-#### Root Capability
-
-Every [=target=] has an implied **root capability** whose `controller` is the
-Space's [=controller=]. It is identified by the URI `urn:zcap:root:` followed by
-the percent-encoded target URL:
-
-```json
-{
-  "@context": "https://w3id.org/zcap/v1",
-  "id": "urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fmessages%2Fhello-world",
-  "invocationTarget": "https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world",
-  "controller": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW"
-}
-```
-
-The Space [=controller=] MAY invoke the root capability directly -- signing the
-request with a key listed in the `capabilityInvocation` section of the
-controller's DID document -- to perform any operation. This is the "root access"
-path. All other authorized access derives from a capability delegated, directly
-or transitively, from this root.
-
-#### Delegation
-
-To grant another agent access, the [=controller=] (or any agent holding a
-sufficiently broad capability) delegates a capability that names the grantee as
-its new `controller`, the `invocationTarget` to scope it to, and the
-`allowedAction`s to permit. A delegation MAY set an `expires` time. For example,
-granting another DID read-only access to a single Collection:
-
-```json
-{
-  "@context": "https://w3id.org/zcap/v1",
-  "id": "urn:uuid:6c9f3a1e-2b4d-4f8a-9c1e-7d2b3a4c5e6f",
-  "parentCapability": "urn:zcap:root:https%3A%2F%2Fexample.com%2Fspace%2F81246131-69a4-45ab-9bff-9c946b59cf2e%2Fmessages%2F",
-  "invocationTarget": "https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/",
-  "controller": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "allowedAction": ["GET"],
-  "expires": "2026-12-31T23:59:59Z",
-  "proof": { "...": "delegation proof signed by the parent capability's controller" }
-}
-```
-
-The delegated capability is handed to the recipient out of band. The recipient
-invokes it by signing a request with their own key and including the capability
-in the `Capability-Invocation` header.
-
-### Specifying Access Policy With Space Link Sets
-
-To set access control policy for a space, use the `linkset` property.
-
-Example (fetching a space's link set):
-
-```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/linkset HTTP/1.1
-Host: example.com
-Accept: application/linkset+json
-Authorization: ...
-```
-
-Response:
-
-```http
-HTTP/1.1 200 OK
-Content-type: application/linkset+json
-
-{
-  "linkset": [
-    {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
-      "https://wallet.storage/spec#policy": [
-        { 
-          "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
-          "type": "application/json"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Example (fetching a specific policy document from the link set):
-
-```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy HTTP/1.1
-Host: example.com
-Authorization: ...
-```
-
-```http
-HTTP/1.1 200 OK
-Content-type: application/json
-
-{ "type": "PublicCanRead" }
-```
-
-### Access Control Policies
-
-Capabilities answer the question "does the caller hold a credential that grants
-this action?" Access control *policies* answer the complementary question
-"does this target grant this action to callers in general (or to a named set of
-principals)?" Policies are how a [=controller=] makes a target public-readable
-(or, in future profiles, shares it with a list of people or groups) without
-having to issue a capability to each caller.
-
-A policy is a JSON document with a required `type` property, stored at the
-[=policy=] auxiliary resource of a Space, Collection, or Resource and
-discoverable via the [=policy=] linkset relation (see [[[#space-linkset]]] and
-[[[#collection-linkset]]]).
-
-**Evaluation contract:**
-
-* **Capability first, policy second.** A request is first checked against any
-  capability invocation it carries. The effective policy is consulted only as a
-  fallback, and it can only **broaden** access -- a policy never denies a caller
-  who presents a valid capability.
-* **Fail-closed.** An absent policy, or a policy whose `type` an implementation
-  does not recognize, grants nothing.
-* **Most-specific-wins inheritance.** The effective policy for a target is the
-  one set at the most specific level that has a policy document: a Resource
-  policy overrides a Collection policy, which overrides a Space policy.
-* **Access kind.** For policy evaluation, the request action is reduced to a
-  coarse access kind: [=GET=] (and `HEAD`) is a `read`; [=POST=], [=PUT=], and
-  [=DELETE=] are a `write`.
-
-#### `PublicCanRead`
-
-For v0.1, the only normative policy `type` is `PublicCanRead`:
-
-```json
-{ "type": "PublicCanRead" }
-```
-
-It grants the `read` access kind to any caller (including unauthenticated ones)
-and grants no write access. This is the canonical "public read" pattern -- for
-example, hosting an HTML file or an image that anyone may `GET`, while writes
-still require a capability. Setting it on a Space makes the whole Space
-public-readable (subject to any more specific Collection or Resource policy);
-setting it on a single Resource exposes only that Resource.
 </section>
 
 <section class="appendix">
@@ -2387,7 +2383,7 @@ Backend description properties:
 
 * `id` (required) - A unique backend identifier (within a given space). The id
   `default` is conventionally used for the server-assigned default backend.
-  See Appendix [[[#identifiers]]] for additional constraints.
+  See [[[#identifiers]]] for additional constraints.
 * `name` (optional) - An arbitrary human-readable name for the backend. Does
   not have to be unique.
 * `managedBy` (optional) - Who operates the backend. One of:
@@ -2533,7 +2529,11 @@ and from access-control [=policy=] (who may act on the data). The property
 naming is to be determined, precisely to avoid overloading the term "policy".
 </div>
 
-### Quotas
+</section>
+
+<section class="appendix">
+
+## Quotas
 
 Quota reporting and enforcement are **optional**, and support is
 backend-dependent. A _quota_ is a storage limit enforced per backend; _usage_
@@ -2550,7 +2550,7 @@ Quota endpoints follow the same maximum-privacy invariant as the rest of this
 specification (see [[[#error-handling]]]): a caller not authorized to read a
 Space's quota report MUST receive a [=not-found=] (404) error, never a 403.
 
-#### (HTTP API) GET `/space/{space_id}/quotas`
+### (HTTP API) GET `/space/{space_id}/quotas`
 
 Returns the storage report for a Space, grouped by backend. Each entry in the
 `backends` array carries:
@@ -2616,7 +2616,7 @@ Content-type: application/json
 }
 ```
 
-#### (HTTP API) GET `/space/{space_id}/quotas?include=collections`
+### (HTTP API) GET `/space/{space_id}/quotas?include=collections`
 
 With the `include=collections` query parameter, each backend entry
 additionally carries a `usageByCollection` array, giving storage-manager
@@ -2648,7 +2648,7 @@ Content-type: application/json
 }
 ```
 
-#### (HTTP API) GET `/space/{space_id}/{collection_id}/quota`
+### (HTTP API) GET `/space/{space_id}/{collection_id}/quota`
 
 Returns the storage report for a single Collection, scoped to that
 Collection's backend (the entry has the same shape as a `backends` array
