@@ -108,90 +108,105 @@ policy endpoints. Hosting "public-read" resources, such as HTML files for websit
 or media files you can link to via `<img src="">`, is a common and valid use
 case.
 
-**(Core) Resource CRUD (Create, Read, Update, Delete):**
+The endpoints below divide into a **Core** profile that every conformant server
+implements, and **Optional extensions** grouped by feature. Each row links to the
+section that defines its operation. Rows marked **Reserved** name a path this
+specification anchors (see [[[#reserved-path-segment-registry]]]) but does not yet
+define an operation for; a server MUST NOT repurpose a reserved path.
 
-* `POST /space/{space_id}/{collection_id}/` - Create a new resource (add to a Collection)
-* `GET /space/{space_id}/{collection_id}/{resource_id}` - Read a resource
-* `PUT /space/{space_id}/{collection_id}/{resource_id}` - Update a resource (create or replace)
-* `DELETE /space/{space_id}/{collection_id}/{resource_id}` - Delete a resource
+---
+
+#### Core
+
+**Resource CRUD (Create, Read, Update, Delete):**
+
+* `POST /space/{space_id}/{collection_id}/` -- [[[#create-resource-add-resource-to-collection-operation]]]
+* `GET /space/{space_id}/{collection_id}/{resource_id}` -- [[[#read-resource-operation]]]
+* `PUT /space/{space_id}/{collection_id}/{resource_id}` -- [[[#update-or-create-by-id-resource-operation]]]
+* `DELETE /space/{space_id}/{collection_id}/{resource_id}` -- [[[#delete-resource-operation]]]
 * Use a `HEAD` instead of a `GET` to check a resource's headers/metadata without
   fetching the whole resource. However, do not rely on this for atomic inserts
   (that is, to check if a resource exists before attempting to create it).
   Instead, use the backend-specific Transaction mechanisms when appropriate.
 
-**List resources in a Collection (Optional):**
+---
+
+#### Optional extensions
+
+**List resources in a Collection:**
 
 If not implemented on a server, implies that only individual Key/Value operations
 are supported.
 
-* `GET /space/{space_id}/{collection_id}/` - List all resources in a Collection
+* `GET /space/{space_id}/{collection_id}/` -- [[[#list-collection-operation]]]
 
-**Manage Collections in a Space (Optional):**
+**Manage Collections in a Space:**
 
 If not implemented on a server, implies that collections are pre-configured or
 implicit, controlled by the server.
 
-* `POST /space/{space_id}/collections/` - Create a new Collection
-* `GET /space/{space_id}/collections/` - List all Collections in a Space
-* `GET /space/{space_id}/{collection_id}` - Get the Collection Description object (properties)
-* `PUT /space/{space_id}/{collection_id}` - Update a Collection's properties
-* `DELETE /space/{space_id}/{collection_id}` - Delete a Collection and its contents
+* `POST /space/{space_id}/collections/` -- [[[#create-collection-add-collection-to-a-space-operation]]]
+* `GET /space/{space_id}/collections/` -- [[[#list-all-collections-operation]]]
+* `GET /space/{space_id}/{collection_id}` -- [[[#get-collection-description-operation]]]
+* `PUT /space/{space_id}/{collection_id}` -- [[[#update-or-create-by-id-collection-operation]]]
+* `DELETE /space/{space_id}/{collection_id}` -- [[[#delete-collection-operation]]]
 
-**Spaces Repository Endpoints - Manage Spaces on a Server (Optional):**
+**Spaces Repository Endpoints -- Manage Spaces on a Server:**
 
 If not implemented on a server, implies that any existing Spaces are
 pre-configured and controlled by the server.
 
-* `POST /spaces/` - Create a new Space
-* `GET /spaces/` - List all Spaces (that the requester is authorized to see)
+* `POST /spaces/` -- [[[#create-space-operation]]]
+* `GET /spaces/` -- [[[#list-spaces-operation]]]
 
-**Space Endpoints - Manage an individual Space (Optional):**
+**Space Endpoints -- Manage an individual Space:**
 
-* `GET /space/{space_id}` - Get the Space Description object (properties)
-* `PUT /space/{space_id}` - Update a Space's properties
-* `DELETE /space/{space_id}` - Delete a Space and its contents
-* `POST /space/{space_id}/export` - Export (download) a Space's contents (all
-  collections and resources)
+* `GET /space/{space_id}` -- [[[#read-space-operation]]]
+* `PUT /space/{space_id}` -- [[[#update-or-create-by-id-space-operation]]]
+* `DELETE /space/{space_id}` -- [[[#delete-space-operation]]]
+* `POST /space/{space_id}/export` -- **Reserved / not yet specified.** Export
+  (download) a Space's contents (all collections and resources).
 
-**Advanced Resource Endpoints (Optional):**
+**Advanced Resource Endpoints:**
 
-* `GET /space/{space_id}/{collection_id}/{resource_id}/meta` - Get the detailed Metadata object for a resource
-* `PUT /space/{space_id}/{collection_id}/{resource_id}/meta` - Update user-writable Metadata properties for a resource
+* `GET /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#read-resource-metadata-operation]]]
+* `PUT /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#update-resource-metadata-operation]]]
 
-**Policy Related Endpoints (Optional):**
+**Policy Related Endpoints:**
 
 Policy overrides are hierarchical and inherited. A policy set for the entire
 Space applies to all its Collections and Resources (unless overridden by a
 more specific policy, either at the Collection or Resource level).
 
-* `GET|PUT|DELETE /space/{space_id}/policy` - CRUD on the policy object for the Space
-* `GET|PUT|DELETE /space/{space_id}/{collection_id}/policy` - CRUD on the policy object for the Collection
-* `GET|PUT|DELETE /space/{space_id}/{collection_id}/{resource_id}/policy` - CRUD on the policy object for the Resource
+* `GET|PUT|DELETE /space/{space_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Space.
+* `GET|PUT|DELETE /space/{space_id}/{collection_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Collection.
+* `GET|PUT|DELETE /space/{space_id}/{collection_id}/{resource_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Resource.
 
-**Linkset / Discovery Endpoints (Optional):**
+**Linkset / Discovery Endpoints:**
 
 Required if Space endpoints or Collection endpoints are supported.
 
-* `GET /space/{space_id}/linkset` - Get the Linkset object for the Space
-* `GET /space/{space_id}/{collection_id}/linkset` - Get the Linkset object for the Collection
+* `GET /space/{space_id}/linkset` -- [[[#space-linkset]]]
+* `GET /space/{space_id}/{collection_id}/linkset` -- [[[#collection-linkset]]]
 
-**Query Endpoints (Optional):**
+**Query Endpoints:**
 
-* `POST /space/{space_id}/query` - Reserved for cross-collection queries (backend-specific)
-* `POST /space/{space_id}/{collection_id}/query` - Reserved for queries within a Collection (backend-specific)
+* `POST /space/{space_id}/query` -- **Reserved / not yet specified.** Cross-collection queries (backend-specific).
+* `POST /space/{space_id}/{collection_id}/query` -- **Reserved / not yet specified.** Queries within a Collection (backend-specific).
 
-**Backend Management Endpoints (Optional)** (see [[[#backends]]]):
+**Backend Management Endpoints** (see [[[#backends]]]):
 
-* `GET /space/{space_id}/backends` - Get the list of available backends for a Space
-* `GET /space/{space_id}/{collection_id}/backend` - Get the detailed backend object for a Collection
-  (the backend summary will also be displayed in the Collection description object)
+* `GET /space/{space_id}/backends` -- [[[#space-backends-available]]]
+* `GET /space/{space_id}/{collection_id}/backend` -- [[[#collection-backend-selected]]]
+  (the backend summary is also displayed in the Collection description object)
 
-**Quota Endpoints (Optional)** (see [[[#quotas]]]):
+**Quota Endpoints** (see [[[#quotas]]]):
 
-* `GET /space/{space_id}/quotas` - Get the Quota report object, grouped by available
-  Backend (add `?include=collections` for a per-collection usage breakdown)
-* `GET /space/{space_id}/{collection_id}/quota` - Get the Quota report object for
-  the specific Collection (not all Backends will support per-collection quotas however)
+* `GET /space/{space_id}/quotas` -- [[[#quotas]]]: the Quota report object, grouped
+  by available Backend (add `?include=collections` for a per-collection usage breakdown)
+* `GET /space/{space_id}/{collection_id}/quota` -- [[[#quotas]]]: the Quota report
+  object for the specific Collection (not all Backends will support per-collection
+  quotas however)
 
 ## Terminology
 
