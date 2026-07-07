@@ -712,14 +712,18 @@ responses.
 
 ### Caching
 
-TODO: Add caching semantics section.
+WAS relies on ordinary [[RFC9111]] HTTP caching and defines no caching layer of
+its own. On the read side, a Resource's strong `ETag` validator (see
+[[[#conditional-requests]]]) drives standard validation: a `GET` carrying
+`If-None-Match: "<etag>"` yields `304 Not Modified` when the Resource is
+unchanged. Servers SHOULD emit `ETag` (and MAY emit `Last-Modified`) on
+`GET`/`HEAD` responses, and SHOULD mark responses to non-idempotent operations
+as non-cacheable (for example, `Cache-Control: no-store`).
 
-* `ETag`, `If-None-Match`, `Last-Modified`, and `Cache-Control` are encouraged
-* Set "no cache" headers for non-idempotent operations
-* On the read side, a Resource's `ETag` validator (see
-  [[[#conditional-requests]]]) drives ordinary HTTP caching: a `GET` carrying
-  `If-None-Match: "<etag>"` yields `304 Not Modified` when the Resource is
-  unchanged.
+<div class="ednote">
+Freshness lifetime and `Cache-Control` directive semantics beyond validation
+are not yet specified.
+</div>
 
 ### Conditional Requests
 
@@ -1197,6 +1201,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 * Returns the list of all Collections in a Space (that the requester has
   permission to access)
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must be
+    signed by the space's [=controller=], or invoke a delegated capability that
+    allows the [=GET=] action
 * Since Collection's `name` property is optional, default it to be the same
   value as `id` when `name` is missing. (The name is intended to drive UIs, so
   defaulting to `id` simplifies consuming client logic.)
@@ -1236,6 +1244,12 @@ Content-type: application/json
   ]
 }
 ```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Space does not exist, or the caller has missing or
+  insufficient authorization; per [[[#error-handling]]] a Space the caller is
+  not authorized to read is indistinguishable from one that does not exist.
 
 ## Collections
 
@@ -1430,6 +1444,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 ### Get Collection Description operation
 
 * Returns the Collection description object
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must be
+    signed by the space's [=controller=], or invoke a delegated capability that
+    allows the [=GET=] action
 
 #### (HTTP API) GET `/space/{space_id}/{collection_id}`
 
@@ -1458,9 +1476,20 @@ Content-type: application/json
 }
 ```
 
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Collection does not exist, or the caller has
+  missing or insufficient authorization; per [[[#error-handling]]] a Collection
+  the caller is not authorized to read is indistinguishable from one that does
+  not exist.
+
 ### List Collection operation
 
 * Returns the list of Collection resources
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must be
+    signed by the space's [=controller=], or invoke a delegated capability that
+    allows the [=GET=] action
 * MAY be paginated (see [[[#pagination]]]); the example below shows a single
   unpaginated page, and the paginated example that follows shows the `next` link
   and cursor continuation.
@@ -1581,6 +1610,13 @@ encrypted (see [[[#resource-metadata-data-model]]]). Item summaries for an
 encrypted Collection therefore carry only server-visible fields (`id`, `url`,
 `contentType`) and omit `name`; a client that needs names decrypts each
 Resource's Metadata itself.
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Collection does not exist, or the caller has
+  missing or insufficient authorization; per [[[#error-handling]]] a Collection
+  the caller is not authorized to read is indistinguishable from one that does
+  not exist.
 
 ### Delete Collection operation
 
@@ -2797,7 +2833,9 @@ A server MAY instead choose to store markers for schemes it does not enforce
 such a server MUST document that it provides no server-side fail-closed
 guarantee for those Collections, leaving the guarantee entirely to clients.
 
-### Validation profile (non-normative)
+### Validation profile
+
+<div class="informative">
 
 A server MAY implement the `edv` envelope profile with a JSON Schema equivalent
 to the following sketch. The outer object MUST carry a `jwe` member; only the
@@ -2841,6 +2879,8 @@ valid `jwe`) fails this profile and is rejected with an
   }
 }
 ```
+
+</div>
 
 </section>
 
