@@ -37,56 +37,34 @@ order. Each tier adds optional capability on top of the one before it, so an
 implementer can stop at any tier and still be conformant. The normative body,
 by contrast, is organized container-first (outermost to innermost: Spaces
 Repositories, Spaces, Collections, then Resources), which is convenient as a
-reference but is the reverse of the tiers. **New to WAS? Start with the core
-tier: [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].**
+reference but is the reverse of the tiers. **New to WAS?** Scan the profile
+table below for the conformance tiers, then walk through
+[[[#quickstart-your-first-request]]] to watch a request succeed. The core tier
+is just [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].
 
-**Permissioned Key/Value CRUD**: At its core, this spec is an example of how to
-implement a permissioned key/value CRUD API using simple HTTP verbs and delegatable
-capability-based authorization. Implementers can use this layer (just sections
-[[[#resources-and-blobs]]] and [[[#was-authorization-profile-v0-1]]]), without
-needing collection or space management, for reads and writes of any resource
-(text, structured document, or binary blob).
+| Profile | Adds | Defining sections |
+|---|---|---|
+| **Minimal** | Resource CRUD (KV + blob read/write) + authorization | [[[#resources-and-blobs]]], [[[#was-authorization-profile-v0-1]]] |
+| **+ Listing** | list resources / collections / spaces | [[[#list-collection-operation]]], [[[#list-all-collections-operation]]], [[[#list-spaces-operation]]] |
+| **+ Collection mgmt** | create / manage collections in a Space | [[[#collections]]] |
+| **+ Space mgmt** | manage an individual Space | [[[#read-space-operation]]] (Space endpoints) |
+| **+ Multi-tenant** | create / manage many Spaces on a server | [[[#spaces-repositories]]] |
+| **+ Extensions** | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]] |
 
-**Listing items**: Some use cases, like the famous "implement a blog with comments
-in 15 minutes" framework posts, need to list items in a container or collection
-of some kind. This spec follows a general pattern of "here are the listing endpoints,
-send a permissioned GET to one, and receive back some items":
-
-* GET `/space/{space_id}/{collection_id}/` endpoint to list items ([[[#list-collection-operation]]])
-* GET `/space/{space_id}/collections/` endpoint to list collections in a space
-  ([[[#list-all-collections-operation]]])
-* GET `/spaces/` endpoint to list spaces in a server ([[[#list-spaces-operation]]])
-
-And just as with the previous layer, some collections contain structured data,
-and some contain just binary blobs (files or objects).
-
-**Collections management**: On the next layer, clients can create and manage
-arbitrary collections for a given space. If you've ever used a GUI front end
-for a database or file system, you'll be familiar with these operations.
-(See section [[[#collections]]].)
-
-**Spaces management**: Some implementations, like cloud storage providers,
-may support multi-tenancy at the space level, adding the concept of [[[#spaces-repositories]]],
-allowing a client to create and manage multiple spaces.
-
-**Extensions**: Linksets (from [[RFC9264]]) serve as a feature detection and
-extension mechanism. See [[[#linksets]]] for more details..
-Linksets support optional features such as:
-
-* The `policy` auxiliary resource provides a way to specify arbitrary access policies
-* User-writable metadata lets clients attach arbitrary data to resources (for
-  example, user-defined "tags" for binary files)
-* A space's Export endpoint allows a client to download a full backup of the
-  data contained in a space
-* The concept of [[[#backends]]] as storage engines for collections
-* Query and search: some Backends support querying or search capability
-* Quota management: some Backends support quota limit enforcement
-* Client-side Encryption, using the [Encrypted Data Vaults](https://identity.foundation/edv-spec/)
-  spec as a backend
-* Replication and Sync: when supported, a client can set up multiple replicas
-  for a given collection, depending on backend support
-* Versioning: similarly, depending on backend support, some resources can have
-  versioning (and in case of replication, conflict resolution) capabilities
+Each tier stacks on the one above it. The **Minimal** profile is a permissioned
+key/value (and blob) CRUD API built from simple HTTP verbs and delegatable
+capability-based authorization -- enough, on its own, to read and write any
+resource (text, structured document, or binary blob) without collection or
+space management. Adding **Listing** is what lets you "implement a blog with
+comments in 15 minutes". **Collection** and **Space** management will feel
+familiar to anyone who has used a GUI front end for a database or file system.
+**Multi-tenant** support lets a provider host many Spaces on one server. The
+**Extensions** tier layers on optional features -- an access-policy resource,
+user-writable metadata (for example, "tags" on binary files), a Space export
+endpoint, pluggable [[[#backends]]], query, quotas, client-side encryption (via
+[Encrypted Data Vaults](https://identity.foundation/edv-spec/)), replication,
+and versioning -- discovered through the linkset feature-detection mechanism
+(from [[RFC9264]]; see [[[#linksets]]]).
 
 **Normative status.** Section back-placement does not imply informative status.
 Everything from [[[#introduction]]] through [[[#quotas]]] is normative, as are the
@@ -97,6 +75,61 @@ appendices -- [[[#goals-and-requirements]]] and [[[#iana-considerations]]] -- ar
 informative. Optionality is orthogonal to normativity: many normative sections
 describe OPTIONAL endpoint groups, but a server that implements them MUST follow
 the stated requirements.
+
+### Quickstart: Your First Request
+
+<div class="note">
+This walkthrough is a non-normative tutorial, not a conformance requirement. It
+assumes a server that already hosts a single Space `{space_id}`, and that you
+are that Space's [=controller=]. The goal is to store one JSON Resource and read
+it back.
+</div>
+
+**Step 1 -- Write.** `PUT` a JSON document to a resource path under a collection.
+A `204 No Content` confirms the write:
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world HTTP/1.1
+Host: example.com
+Content-Type: application/json
+Authorization: ...
+
+{"message":"hi"}
+```
+
+```http
+HTTP/1.1 204 No Content
+```
+
+**Step 2 -- Read.** `GET` the same path to retrieve what you just stored:
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world HTTP/1.1
+Host: example.com
+Accept: application/json
+Authorization: ...
+```
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/json
+
+{"message":"hi"}
+```
+
+The `Authorization: ...` placeholder stands for a signed zCap invocation, not a
+bearer token. WAS reads are authorized too, so the header is required on the
+`GET` just as on the `PUT`. How that credential is constructed is defined in
+[[[#performing-authorized-api-calls]]], and its fully expanded form -- with the
+`Digest`, `Capability-Invocation`, and `Signature` headers spelled out -- is
+shown once in the worked example within that section. Producing that signature
+requires a conformant WAS client: it is an Ed25519 `did:key` capability
+invocation, not something you can hand-write with curl.
+
+To go beyond a single pre-existing Space -- to create your own Space, or
+delegate access to others -- see the conformance-profile table in
+[[[#scope-and-conformance-profiles]]] and the full endpoint map in
+[[[#api-summary]]].
 
 ### API Summary
 
