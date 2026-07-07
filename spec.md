@@ -403,8 +403,9 @@ Multikey encoding of `Ed25519` elliptic curve keys, as specified in the
 [Multikey section of the CID spec](https://www.w3.org/TR/cid-1.0/#Multikey)
 as the space `controller`.
 
-When a space is created via an HTTP [POST](#http-api-post-spaces) or
-[PUT](#http-api-put-space-space_id) operation, the controller for that space
+When a space is created via an HTTP `POST` or `PUT` operation (see
+[[[#http-api-post-spaces]]] and [[[#http-api-put-space-space_id]]]), the
+controller for that space
 is set explicitly. That is, a client specifies the `controller` as part of the
 payload of the PUT or POST create space request, and the server MUST verify
 that the invocation is authorized by that `controller`, by one of the first two
@@ -414,8 +415,8 @@ headers is authorized in the `capabilityInvocation` section of the
 `controller` to the signing DID. (The third mechanism, matching policy, does
 not apply: no Space, and therefore no policy, exists yet.)
 
-See below in the [HTTP POST](#http-api-post-spaces) sections for examples of
-`controller` determination and verification.
+See [[[#http-api-post-spaces]]] below for examples of `controller`
+determination and verification.
 
 #### Performing Authorized API Calls
 
@@ -806,8 +807,8 @@ To create a Space:
     either signed directly by the `controller` DID (the common case), or signed
     by another DID presenting a valid, unexpired delegation chain rooted in the
     `controller` (see [[[#delegation]]]). This is how the root of trust is
-    initially set up (see the [Space `controller` and the Root of
-    Trust](#space-controller-and-the-root-of-trust) section for more details).
+    initially set up (see [[[#space-controller-and-the-root-of-trust]]] for
+    more details).
   * The delegated form supports creating a Space *on behalf of* its eventual
     controller: for example, a provisioning service that handles payment or
     onboarding can be delegated a `POST` capability for `/spaces/` by the user,
@@ -1791,10 +1792,10 @@ and `Accept` header handling (including the `HEAD` variant).
 #### (HTTP API) GET `/space/{space_id}/{collection_id}/{resource_id}`
 
 * Requires appropriate authorization
-  - For example, when using [zCaps](#was-authorization-profile-v0-1) for
+  - For example, when using [=zCaps=] for
     authorization, the request must either: be signed by the resource's or the
     space's [=controller=], or invoke a delegated capability that allows the
-    [`GET` action](#get-action)
+    [=GET=] action
 
 Example request to retrieve a resource:
 
@@ -1829,10 +1830,10 @@ of the Resource. This Resource `id` MUST NOT collide with the list of
 #### (HTTP API) PUT `/space/{space_id}/{collection_id}/{resource_id}`
 
 * Requires appropriate authorization
-  - For example, when using [zCaps](#was-authorization-profile-v0-1) for
+  - For example, when using [=zCaps=] for
     authorization, the request must either: be signed by the resource's or the
     space's [=controller=], or invoke a delegated capability that allows the
-    [`PUT` action](#put-action)
+    [=PUT=] action
 * This operation is idempotent
 * Returns a `204` success response
 
@@ -1923,10 +1924,10 @@ described in [[[#conditional-requests]]] when the target backend advertises the
 #### (HTTP API) DELETE `/space/{space_id}/{collection_id}/{resource_id}`
 
 * Requires appropriate authorization
-  - For example, when using [zCaps](#was-authorization-profile-v0-1) for authorization, the request
+  - For example, when using [=zCaps=] for authorization, the request
     must either: be signed by the resource's or the space's [=controller=],
     or invoke a delegated capability that allows the
-    [`DELETE` action](#delete-action)
+    [=DELETE=] action
 
 * This operation is idempotent
 
@@ -2040,10 +2041,10 @@ or an empty body object (`{}`).
 #### (HTTP API) GET `/space/{space_id}/{collection_id}/{resource_id}/meta`
 
 * Requires appropriate authorization
-  - For example, when using [zCaps](#was-authorization-profile-v0-1) for
+  - For example, when using [=zCaps=] for
     authorization, the request must either: be signed by the resource's or the
     space's [=controller=], or invoke a delegated capability that allows the
-    [`GET` action](#get-action)
+    [=GET=] action
 
 Example request:
 
@@ -2100,10 +2101,10 @@ returns a [=not-found=] (404) error.
 #### (HTTP API) PUT `/space/{space_id}/{collection_id}/{resource_id}/meta`
 
 * Requires appropriate authorization
-  - For example, when using [zCaps](#was-authorization-profile-v0-1) for
+  - For example, when using [=zCaps=] for
     authorization, the request must either: be signed by the resource's or the
     space's [=controller=], or invoke a delegated capability that allows the
-    [`PUT` action](#put-action)
+    [=PUT=] action
 * This operation is idempotent
 * Returns a `204` success response
 
