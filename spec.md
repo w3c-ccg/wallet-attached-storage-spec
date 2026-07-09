@@ -289,6 +289,15 @@ Required if Space endpoints or Collection endpoints are supported.
     vocabulary. See section
     [[[#authorization-actions-and-the-root-capability]]].</dd>
 
+  <dt><dfn id="term-backend" data-lt="backends">backend</dfn></dt>
+  <dd>A storage engine that a [=collection=]'s resources are physically stored
+    on, registered at the Space level either by server configuration or by
+    client-side "Bring Your Own Storage" registration. Backends are an OPTIONAL
+    concern, orthogonal to the Space > Collection > Resource hierarchy: a
+    Collection names one via its <code>backend</code> property, and is assigned
+    the <code>default</code> backend when it does not. See section
+    [[[#backends]]].</dd>
+
   <dt><dfn data-lt="collections">collection</dfn></dt>
   <dd>A namespace and configuration container for resources. Conceptually maps
     to folders (for file system like storage), buckets (for object storage), or
@@ -313,6 +322,16 @@ Required if Space endpoints or Collection endpoints are supported.
     access (never deny a caller holding a valid capability), and grant nothing
     when absent or of an unrecognized <code>type</code>. See section
     [[[#access-control-policies]]].</dd>
+
+  <dt><dfn id="term-quota" data-lt="storage quota|storage quotas">quota</dfn></dt>
+  <dd>A storage limit enforced per [=backend=], together with the <em>usage</em>
+    measurement of the storage consumed against it. Quota reporting and
+    enforcement are OPTIONAL and backend-dependent: a Space's per-backend report
+    is read from its <code>/quotas</code> auxiliary resource, and a
+    per-Collection breakdown from <code>/quota</code>. A write that would exceed
+    a quota is rejected with [=quota-exceeded=] (507); a single upload larger
+    than the backend's <code>maxUploadBytes</code> constraint is rejected with
+    [=payload-too-large=] (413). See section [[[#quotas]]].</dd>
 
   <dt><dfn data-lt="root capabilities|root zcap">root capability</dfn></dt>
   <dd>The implied capability for a [=target=] whose [=controller=] is the Space's
@@ -2246,8 +2265,9 @@ resources and extension points:
 * <dfn id="backends-available">`backends-available`</dfn>
   (`https://wallet.storage/spec#backends-available`) - A link to the
   `/space/{space_id}/backends` "Backends Available" resource.
-* <dfn id="quotas-rel">`quotas`</dfn> (`https://wallet.storage/spec#quotas`) -
-  A link to the `/space/{space_id}/quotas` per-backend storage quota report
+* <dfn data-lt="quotas relation" id="quotas-rel"><code>quotas</code> relation</dfn>
+  (`https://wallet.storage/spec#quotas`) -
+  A link to the `/space/{space_id}/quotas` per-backend storage [=quota=] report
   (see [[[#quotas]]]).
 * `/space/{space_id}/query` - Reserved for cross-space query operations.
 
@@ -2301,11 +2321,13 @@ to auxiliary resources and extension points:
 * The [=policy relation=] (`https://wallet.storage/spec#policy`) - A link to the
   `/space/{space_id}/{collection_id}/policy` resource, which contains a set of links
   to access control policy documents.
-* <dfn id="backend">`backend`</dfn> (`https://wallet.storage/spec#backend`) - A link to the
+* <dfn data-lt="backend relation" id="backend-rel"><code>backend</code> relation</dfn>
+  (`https://wallet.storage/spec#backend`) - A link to the
   detailed `/space/{space_id}/{collection_id}/backend` "Backend Selected for this
   collection" resource.
-* <dfn id="quota-rel">`quota`</dfn> (`https://wallet.storage/spec#quota`) - A
-  link to the `/space/{space_id}/{collection_id}/quota` storage quota report
+* <dfn data-lt="quota relation" id="quota-rel"><code>quota</code> relation</dfn>
+  (`https://wallet.storage/spec#quota`) - A
+  link to the `/space/{space_id}/{collection_id}/quota` storage [=quota=] report
   for this collection (see [[[#quotas]]]).
 * `/space/{space_id}/{collection_id}/query` - (Optional) Reserved for query
   operations within a collection.
@@ -2448,6 +2470,9 @@ specified.
 
 ### Space Backends Available {#space-backends-available}
 
+The list of [=backends=] registered on a Space is discoverable via the
+[=backends-available=] relation in the linkset (see [[[#space-linkset]]]).
+
 Example request:
 
 ```http
@@ -2492,7 +2517,9 @@ Content-type: application/json
 
 Each collection has an optional `backend` property that is set during its creation
 (see [[[#collection-data-model]]]). If not specified, it is assumed to have the
-`id` of `default`.
+`id` of `default`. The selected backend is discoverable via the
+[=backend relation=] in the collection's linkset (see
+[[[#collection-linkset]]]).
 
 <div class="ednote">
 **Replicas (planned generalization).** The single `backend` property is
@@ -2532,10 +2559,8 @@ naming is to be determined, precisely to avoid overloading the term "policy".
 
 ## Quotas {#quotas}
 
-Quota reporting and enforcement are **optional**, and support is
-backend-dependent. A _quota_ is a storage limit enforced per backend; _usage_
-is a measurement of the storage consumed. The quota API serves two distinct
-consumers:
+[=Quota=] reporting and enforcement are **optional**, and support is
+backend-dependent. The quota API serves two distinct consumers:
 
 * The **hot path**: applications checking whether they have room to write,
   served by a compact per-backend report.
@@ -2549,8 +2574,9 @@ Space's quota report MUST receive a [=not-found=] (404) error, never a 403.
 
 ### (HTTP API) GET `/space/{space_id}/quotas`
 
-Returns the storage report for a Space, grouped by backend. Each entry in the
-`backends` array carries:
+Returns the storage report for a Space, grouped by backend, and is discoverable
+via the [=quotas relation=] in the Space's linkset (see [[[#space-linkset]]]).
+Each entry in the `backends` array carries:
 
 * `id`, `name`, `managedBy` - identifying properties from the corresponding
   Backend description object (see [[[#backend-data-model]]]).
@@ -2649,7 +2675,9 @@ Content-type: application/json
 
 Returns the storage report for a single Collection, scoped to that
 Collection's backend (the entry has the same shape as a `backends` array
-entry, with `usageBytes` reflecting only this Collection's consumption).
+entry, with `usageBytes` reflecting only this Collection's consumption). It is
+discoverable via the [=quota relation=] in the Collection's linkset (see
+[[[#collection-linkset]]]).
 
 Not all backends support per-collection accounting. Where unsupported, the
 server returns an [=unsupported-operation=] (501) error.
