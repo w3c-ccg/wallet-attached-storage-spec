@@ -280,7 +280,7 @@ Required if Space endpoints or Collection endpoints are supported.
 **Query Endpoints:**
 
 * `POST /space/{space_id}/query` -- **Reserved / not yet specified.** Cross-collection queries (backend-specific).
-* `POST /space/{space_id}/{collection_id}/query` -- **Reserved / not yet specified.** Queries within a Collection (backend-specific).
+* `POST /space/{space_id}/{collection_id}/query` -- (OPTIONAL) Queries within a Collection, discriminated by a request-body `profile`; catalogued in [[[#query-profile-registry]]].
 
 **Backend Management Endpoints** (see [[[#backends]]]):
 
@@ -671,7 +671,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
       "https://wallet.storage/spec#policy": [
         { 
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
@@ -2305,7 +2305,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
       "https://wallet.storage/spec#policy": [
         { 
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
@@ -2346,8 +2346,9 @@ to auxiliary resources and extension points:
   (`https://wallet.storage/spec#quota`) - A
   link to the `/space/{space_id}/{collection_id}/quota` storage [=quota=] report
   for this collection (see [[[#quotas]]]).
-* `/space/{space_id}/{collection_id}/query` - (Optional) Reserved for query
-  operations within a collection.
+* `/space/{space_id}/{collection_id}/query` - (Optional) Query operations within
+  a collection, discriminated by a request-body `profile` (see
+  [[[#query-profile-registry]]]).
 
 Example collection linkset resource request and response:
 
@@ -2366,7 +2367,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages",
       "https://wallet.storage/spec#policy": [
         { 
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/policy",
@@ -2452,8 +2453,10 @@ Backend description properties:
   defines:
   - `conditional-writes` - the backend enforces `If-Match` / `If-None-Match`
     write preconditions (see [[[#conditional-requests]]]).
-  - `blinded-index-query` - the backend serves the blinded-index profile of the
-    reserved `query` endpoint.
+  - `changes-query` - the backend serves the `changes` profile of the `query`
+    endpoint (see [[[#query-profile-registry]]]).
+  - `blinded-index-query` - the backend serves the `blinded-index` profile of the
+    `query` endpoint (see [[[#query-profile-registry]]]).
   - `chunked-streams` - the backend supports chunk addressing for large blobs.
 
   Each token names something the **server** must actively do. Note that
@@ -2477,7 +2480,7 @@ both observe the same prior version and both succeed. An in-process
 per-Resource lock satisfies this for a single-instance server only; a
 horizontally-scaled deployment needs to coordinate the check-and-write across
 instances (e.g. an atomic compare-and-swap on the stored version or a shared
-lock). The reference implementation provides single-instance locking only.
+lock).
 
 <div class="ednote">
 The schema of a backend's connection configuration (server-internal
@@ -2843,7 +2846,7 @@ corresponding reserved segments.
 | `/space/{space_id}/{collection_id}/policy`   | `policy`         | Access control policy               |
 | `/space/{space_id}/{collection_id}/backend`  | `backend`        | Storage backend selected            |
 | `/space/{space_id}/{collection_id}/linkset`  | `linkset`        | Links to auxiliary resources        |
-| `/space/{space_id}/{collection_id}/query`    | `query`          | Query resources within a collection |
+| `/space/{space_id}/{collection_id}/query`    | `query`          | Query resources within a collection (see [[[#query-profile-registry]]]) |
 | `/space/{space_id}/{collection_id}/quota`    | `quota`          | Storage quota report for collection |
 
 If a client attempts to create a resource with an `id` that collides with a
@@ -2975,6 +2978,286 @@ valid `jwe`) fails this profile and is rejected with an
 ```
 
 </div>
+
+</section>
+
+<section class="appendix">
+
+## Query Profile Registry {#query-profile-registry}
+
+This appendix is normative.
+
+A [=collection=] MAY expose an OPTIONAL query endpoint at
+`POST /space/{space_id}/{collection_id}/query`. The endpoint is a single URL that
+serves several distinct query dialects; a request selects one by carrying a
+`profile` discriminator in its body. This registry maps each `profile` token to
+the request and response wire shape of that dialect.
+
+The request body is an `application/json` object with a REQUIRED `profile` string
+member. All other members are profile-specific. A [=server=] that recognizes the
+`profile` answers with `200 OK` on success and a profile-specific response body.
+A server that does not serve a given `profile` -- whether because the server does
+not implement it at all, or because the Collection's [=backend=] lacks the
+capability (see [[[#backend-data-model]]]) -- MUST respond with an
+[=unsupported-operation=] (`501`) error.
+
+The `profile` vocabulary is open and additive, mirroring the [=backend=]
+`features` vocabulary (see [[[#backend-data-model]]]): this specification defines
+the tokens below, and future profiles register additional tokens. A server MUST
+treat a `profile` it does not recognize the same as one it does not serve, with
+[=unsupported-operation=].
+
+**Authorization.** The query endpoint requires read authorization (a capability
+or a [=policy=] grant, as for any read); the invoked [=action=] is [=POST=]. The
+capability's [=invocationTarget=] is the bare `/query` URL: every query parameter
+travels in the request body, which is signed and covered by the request `Digest`
+(see [[[#request-body-integrity-digest-header]]]), so no query-string attenuation is involved
+and a capability that authorizes the `/query` target authorizes any query body it
+signs. As with every other operation, a server MUST verify authorization before
+validating the request body. An under-authorized caller therefore receives the
+privacy-preserving [=not-found=] (`404`, see [[[#error-handling]]]) and never
+learns whether its query body was well-formed, nor whether the target Collection
+exists.
+
+| `profile`        | Summary                                                     | Defining subsection                 |
+|------------------|-------------------------------------------------------------|-------------------------------------|
+| `changes`        | Ordered replication change feed (a resumable pull loop)     | [[[#query-profile-changes]]]        |
+| `blinded-index`  | Matching over client-computed blinded (HMAC'd) attributes   | [[[#query-profile-blinded-index]]]  |
+
+### `changes` profile {#query-profile-changes}
+
+The `changes` profile serves an ordered, resumable feed of the content and
+metadata changes in a [=collection=], so that an offline-first replication client
+can pull a Collection's state incrementally and keep a local replica in sync. A
+server that serves this profile SHOULD advertise the `changes-query` [=backend=]
+feature (see [[[#backend-data-model]]]).
+
+Request body:
+
+```json
+{
+  "profile": "changes",
+  "checkpoint": { "id": "<resourceId>", "updatedAt": "<ISO-8601 timestamp>" },
+  "limit": 100
+}
+```
+
+* `checkpoint` (OPTIONAL) - the position to resume from, echoed from a prior
+  response (see below). When present it MUST be an object with a string `id` and a
+  string `updatedAt`; a malformed `checkpoint` is rejected with an
+  [=invalid-request-body=] (`400`) error. When absent, the feed starts at the
+  beginning.
+* `limit` (OPTIONAL) - the requested batch size. A non-finite value, or a value
+  less than `1`, falls back to a server default (a server default of `100` is
+  RECOMMENDED); a server MAY clamp `limit` down to an implementation maximum.
+
+Response body:
+
+```json
+{
+  "documents": [
+    {
+      "id": "hello-world",
+      "_deleted": false,
+      "updatedAt": "2026-01-15T12:00:00.000Z",
+      "version": 1,
+      "metaVersion": 3,
+      "data": { "message": "hi" },
+      "custom": { "tags": ["greeting"] }
+    }
+  ],
+  "checkpoint": { "id": "hello-world", "updatedAt": "2026-01-15T12:00:00.000Z" }
+}
+```
+
+Each entry in `documents` describes one changed Resource:
+
+* `id` - the Resource id.
+* `_deleted` - a boolean; `true` on a tombstone (a soft-deleted Resource), `false`
+  otherwise. The underscore-prefixed member name is deliberate: it matches the
+  wire convention of offline-first replication clients.
+* `updatedAt` - the ISO-8601 timestamp of the change; the feed's ordering key.
+* `version` - a monotonic content version. This is the same validator a server
+  surfaces as the `ETag` where conditional writes are supported (see
+  [[[#conditional-requests]]]); it is always present, and a content write bumps
+  it.
+* `metaVersion` - a monotonic metadata version, present only once metadata has
+  been written for the Resource, and bumped by a metadata-only edit.
+* `data` - the stored JSON body verbatim. The body is nested under `data` (rather
+  than spread onto the entry) so that a non-object JSON body round-trips
+  faithfully. Omitted on a tombstone.
+* `custom` - the user-writable metadata object (see
+  [[[#resource-metadata-data-model]]]), present only when set. On an encrypted
+  Collection this is the opaque client-encrypted envelope, passed through
+  untouched.
+
+**Tombstones.** A soft-deleted Resource surfaces as
+`{ "id", "_deleted": true, "updatedAt", "version" }` with no `data` member;
+the deletion bumps `version`.
+
+**Ordering and resumption.** Entries are ordered by an ascending `(updatedAt, id)`
+keyset. The top-level `checkpoint` echoes the position of the last entry in
+`documents`, or is `null` when nothing changed past the supplied `checkpoint`
+(the end of the feed). A client resumes by sending the returned `checkpoint` as
+the `checkpoint` of its next request; the resulting sequence of calls is the pull
+loop of a replication protocol. A metadata-only edit re-surfaces the Resource
+with a bumped `updatedAt` and `metaVersion` but an unchanged `version` and `data`.
+
+**Scope.** Binary (non-JSON) Resources are excluded from the `changes` feed; blob
+replication is out of scope for this profile.
+
+Example -- request the first batch and receive one changed document plus the
+checkpoint to resume from:
+
+```http
+POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/query HTTP/1.1
+Host: example.com
+Content-Type: application/json
+Authorization: ...
+
+{ "profile": "changes", "limit": 100 }
+```
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/json
+
+{
+  "documents": [
+    {
+      "id": "hello-world",
+      "_deleted": false,
+      "updatedAt": "2026-01-15T12:00:00.000Z",
+      "version": 1,
+      "data": { "message": "hi" }
+    }
+  ],
+  "checkpoint": { "id": "hello-world", "updatedAt": "2026-01-15T12:00:00.000Z" }
+}
+```
+
+### `blinded-index` profile {#query-profile-blinded-index}
+
+The `blinded-index` profile serves queries over client-computed blinded (HMAC'd)
+attributes, so that a [=server=] can match encrypted documents without seeing
+plaintext attribute names or values. Its semantics follow the query operation of
+the [Encrypted Data Vaults](https://identity.foundation/edv-spec/) specification
+(the same specification the [[[#encryption-scheme-registry]]] references for the
+`edv` envelope). A server that serves this profile SHOULD advertise the
+`blinded-index-query` [=backend=] feature (see [[[#backend-data-model]]]).
+
+Documents opt in by carrying the EDV `indexed` member: an array of entries of the
+shape `{ "hmac": { "id", "type" }, "sequence", "attributes": [ { "name",
+"value", "unique"? } ] }`, in which each `name` and `value` is a blinded (HMAC'd)
+token computed by the client. A server stores the `indexed` member and matches
+against it, but cannot invert it back to the plaintext attribute.
+
+Request body:
+
+```json
+{
+  "profile": "blinded-index",
+  "index": "<HMAC key id>",
+  "equals": [ { "<blindedName>": "<blindedValue>" } ],
+  "has": [ "<blindedName>" ],
+  "count": false,
+  "limit": 10,
+  "cursor": "<opaque token>"
+}
+```
+
+* `index` (REQUIRED) - a non-empty string naming which blinded index (the HMAC
+  key `id`) to search. Matching is scoped to entries under this index.
+* Exactly one of `equals` or `has` MUST be present; supplying neither, or both,
+  is an [=invalid-request-body=] (`400`) error.
+  * `equals` - a non-empty array of objects, each mapping a blinded attribute name
+    to a blinded attribute value (all strings). The array is a disjunction (OR
+    across its elements); the pairs within one element are a conjunction (AND). An
+    empty object element matches nothing.
+  * `has` - a non-empty array of blinded attribute name strings; matches every
+    document that carries every named attribute under the index, regardless of
+    value.
+* `count` (OPTIONAL) - a boolean. When `true`, the response is exactly
+  `{ "count": <number> }` (the number of matching documents) rather than a
+  document page.
+* `limit` (OPTIONAL) - the requested page size, handled leniently as for the
+  [[[#query-profile-changes]]] profile (a non-finite or `< 1` value falls back to
+  a server default; a server MAY clamp to a maximum).
+* `cursor` (OPTIONAL) - an opaque pagination token from a prior response (see
+  below). A malformed `cursor` is rejected with an [=invalid-cursor=] (`400`)
+  error.
+
+Response body (a document page):
+
+```json
+{ "documents": [ { } ], "hasMore": false, "cursor": "<opaque token>" }
+```
+
+* `documents` - the matching stored documents, verbatim (an encrypted envelope
+  passes through untouched), in ascending Resource `id` order.
+* `hasMore` - a boolean, `true` when more matching documents follow the page.
+* `cursor` - an opaque continuation token, present if and only if `hasMore` is
+  `true`. A client resumes by echoing it as the `cursor` of its next request. As
+  with pagination cursors elsewhere (see [[[#pagination]]]), a client MUST treat
+  the token as opaque and MUST NOT construct, parse, or modify it.
+
+<div class="note">
+
+Cursor pagination is a deliberate WAS extension over the Encrypted Data Vaults
+query operation, which offers only `limit` together with a `hasMore` flag and no
+means to fetch the next page. A server that also implements the EDV query
+operation directly may expose `limit`/`hasMore` there while offering the
+`cursor` continuation only through this profile.
+
+</div>
+
+Example -- match documents whose blinded `index-2` attribute equals a blinded
+value:
+
+```http
+POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/query HTTP/1.1
+Host: example.com
+Content-Type: application/json
+Authorization: ...
+
+{
+  "profile": "blinded-index",
+  "index": "z1A...hmacKeyId",
+  "equals": [ { "aBlindedName": "aBlindedValue" } ],
+  "limit": 10
+}
+```
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/json
+
+{
+  "documents": [
+    { "id": "urn:uuid:...", "sequence": 0, "jwe": { "ciphertext": "..." } }
+  ],
+  "hasMore": false
+}
+```
+
+#### Unique blinded attributes
+
+An `indexed` attribute entry MAY carry `"unique": true`, marking its
+`(hmac id, name, value)` triple as a uniqueness claim within the Collection. A
+[=server=] MUST reject a Resource content write that would claim a triple already
+claimed with `unique: true` by a *different* Resource in the same [=collection=],
+with an [=id-conflict=] (`409`) error. A document re-asserting its own existing
+claim never self-conflicts, and the same triple carried *without* `unique`
+coexists freely.
+
+This uniqueness is enforced at write time, not at query time. As with the
+[=id-conflict=] rule elsewhere in this specification (see the id-conflict privacy
+note in [[[#error-type-registry]]]), a server MUST verify the caller's
+authorization to write at the target before performing this check, so that the
+existence-revealing `409` is observable only to a caller already authorized to
+write; an under-authorized caller receives the merged [=not-found=] instead. The
+check MUST be atomic with the write, so that two concurrent writers cannot both
+claim the same triple.
 
 </section>
 
