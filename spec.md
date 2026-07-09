@@ -1,3 +1,15 @@
+<div class="remove">
+
+# Wallet Attached Storage v0.3
+
+**Abstract:** Wallet Attached Storage is a general purpose permissioned
+storage API -- CRUD over an HTTP hierarchy with object-capability authorization.
+
+**Status:** Experimental W3C CCG draft, undergoing regular revisions.
+Rendered version: https://w3c-ccg.github.io/wallet-attached-storage-spec/
+
+</div>
+
 ## Introduction
 
 The Wallet Attached Storage (WAS) specification brings together the lessons
