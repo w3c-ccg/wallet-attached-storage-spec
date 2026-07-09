@@ -1,6 +1,6 @@
 # Wallet Attached Storage specification
 
-> > Wallet Attached Storage is a general-purpose permissioned cloud storage API:
+> Wallet Attached Storage is a general-purpose permissioned cloud storage API:
 > CRUD over an HTTP hierarchy of Spaces, Collections, and Resources, secured by
 > object-capability (zCap) authorization. Storage is private by default -- only
 > a Space's controller may act on it unless a policy grants otherwise -- and
