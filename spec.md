@@ -1107,6 +1107,15 @@ Conceptually, is maps to a disk partition (for file systems), or a database
 
 Space properties automatically added by the server:
 
+* `createdBy` (optional) - The [=did=] of the party whose capability invocation
+  created the space. It is recorded on the first write and preserved unchanged
+  by later writes, so it names the creator rather than the last writer. It is
+  read-only: a server MUST ignore a `createdBy` supplied in a request body.
+  `createdBy` is distinct from `controller` -- under delegated provisioning
+  (see [[[#space-controller-and-the-root-of-trust]]]) the party that creates a
+  space need not be the party that controls it. Recording it is OPTIONAL, so a
+  client MUST treat an absent `createdBy` as "not recorded" rather than as an
+  assertion that the space has no creator.
 * `url` - A relative URL to the space's description resource.
   Added by the server, used in the Space Description object as well as
   the [[[#list-spaces-operation]]] result.
@@ -1149,6 +1158,7 @@ Content-type: application/json
   "type": ["Space"],
   "name": "Example space #1",
   "controller": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
+  "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
   "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/linkset"
 }
 ```
@@ -1186,6 +1196,12 @@ POST). A server that verifies an *update* against the
 body's `controller` reopens the takeover described under
 [[[#create-space-errors]]]: any caller could seize an existing Space by
 PUTting its `id` with themselves as the `controller`.
+
+A server that records `createdBy` (see [[[#space-data-model]]]) sets it only on
+the `PUT` that creates the Space, to the [=did=] of the party that invoked the
+capability -- which is not necessarily the body's `controller`. On a `PUT` that
+updates an existing Space, the stored `createdBy` is preserved, so transferring
+the Space by writing a new `controller` does not rewrite its creator.
 
 #### (HTTP API) PUT `/space/{space_id}`
 
@@ -1404,6 +1420,10 @@ Collection properties (user-writable):
 
 Collection properties automatically added by the server:
 
+* `createdBy` (optional) - The [=did=] of the party whose capability invocation
+  created the collection, on the same terms as a Space's `createdBy` (see
+  [[[#space-data-model]]]): recorded on the first write, preserved by later
+  writes, read-only, and OPTIONAL.
 * `url` - A relative URL to the collection's description resource.
   Added by the server, used in the Collection Description object as well as
   the List Collections operations result.
@@ -1420,6 +1440,7 @@ Example collection (JSON representation):
   "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
   "type": ["Collection"],
   "name": "Verifiable Credentials Collection",
+  "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
   "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset"
 }
 ```
@@ -2107,7 +2128,7 @@ properties:
   leaves the top level free for future server-managed properties.
 
 Server-managed properties (`contentType` and `size` are REQUIRED in every
-Metadata object; the timestamps are OPTIONAL):
+Metadata object; the timestamps and `createdBy` are OPTIONAL):
 
 * `contentType` - The MIME type of the stored representation of the Resource,
   recorded from the `Content-Type` header of the request that last wrote the
@@ -2120,6 +2141,15 @@ Metadata object; the timestamps are OPTIONAL):
   was created.
 * `updatedAt` (optional) - The [[RFC3339]] `date-time` at which the Resource's
   content or user-writable metadata was last modified.
+* `createdBy` (optional) - The [=did=] of the party whose capability invocation
+  created the Resource. It is recorded on the first write and preserved
+  unchanged by later writes, so it names the creator rather than the last
+  writer -- in a Collection written by several delegated agents, `createdBy`
+  and the party responsible for the current content need not be the same. Like
+  the other server-managed properties it is read-only: it cannot be set through
+  the [[[#update-resource-metadata-operation]]]. Recording it is OPTIONAL, so a
+  client MUST treat an absent `createdBy` as "not recorded" rather than as an
+  assertion that the Resource has no creator.
 
 <div class="ednote">
 **Versioning is optional and backend-advertised.** This metadata model does not
@@ -2150,8 +2180,10 @@ On a Collection that declares an `encryption` marker (see
 [[[#encryption-scheme-registry]]]), the user-writable `custom` object is stored
 **encrypted**: its value is an envelope of the Collection's declared scheme
 (the same envelope profile used for a Resource's content). The server-managed
-top-level properties (`contentType`, `size`, timestamps) remain plaintext -- the
-server needs them for listings, `GET`/`HEAD` headers, and quotas. The server
+top-level properties (`contentType`, `size`, the timestamps, and `createdBy`)
+remain plaintext -- the server needs them for listings, `GET`/`HEAD` headers,
+quotas, and, in the case of `createdBy`, because it is the very identity the
+server authenticated on the creating write. The server
 validates the `custom` envelope structurally on write (rejecting a plaintext
 `custom` with an [=encryption-scheme-mismatch=]) and never decrypts it; a client
 holding the keys decrypts `custom` back to `{ name, tags, ... }` after reading.
@@ -2195,6 +2227,7 @@ Content-type: application/json
   "size": 16,
   "createdAt": "2026-06-10T09:12:00Z",
   "updatedAt": "2026-06-12T13:25:00Z",
+  "createdBy": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
   "custom": {
     "name": "Hello World greeting",
     "tags": { "project": "demo", "status": "draft" }
