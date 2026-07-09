@@ -304,6 +304,16 @@ Required if Space endpoints or Collection endpoints are supported.
   <dd>A deployed instance of an application or service that implements this
     specification's API.</dd>
 
+  <dt><dfn data-lt="policies|access control policy|access control policies">policy</dfn></dt>
+  <dd>A JSON document with a required <code>type</code> property that declares what
+    access a [=target=] grants to callers in general, independent of any [=zCap=]
+    a caller might present. A policy is stored at the <code>/policy</code>
+    auxiliary resource of a Space, Collection, or Resource. Policies are inherited
+    most-specific-wins (Resource over Collection over Space), can only broaden
+    access (never deny a caller holding a valid capability), and grant nothing
+    when absent or of an unrecognized <code>type</code>. See section
+    [[[#access-control-policies]]].</dd>
+
   <dt><dfn data-lt="root capabilities|root zcap">root capability</dfn></dt>
   <dd>The implied capability for a [=target=] whose [=controller=] is the Space's
     controller; it is the root of trust from which all other capabilities for
@@ -662,8 +672,8 @@ principals)?" Policies are how a [=controller=] makes a target public-readable
 having to issue a capability to each caller.
 
 A policy is a JSON document with a required `type` property, stored at the
-[=policy=] auxiliary resource of a Space, Collection, or Resource and
-discoverable via the [=policy=] linkset relation (see [[[#space-linkset]]] and
+`/policy` auxiliary resource of a Space, Collection, or Resource and
+discoverable via the [=policy relation=] in the linkset (see [[[#space-linkset]]] and
 [[[#collection-linkset]]]).
 
 **Evaluation contract:**
@@ -2229,7 +2239,8 @@ The space `linkset` resource (one of the [[[#space-level-reserved-endpoints]]]),
 located at `/space/{space_id}/linkset` contains a set of links to auxiliary
 resources and extension points:
 
-* <dfn id="policy">`policy`</dfn> (`https://wallet.storage/spec#policy`) - A link to the
+* <dfn data-lt="policy relation" id="policy-rel"><code>policy</code> relation</dfn>
+  (`https://wallet.storage/spec#policy`) - A link to the
   `/space/{space_id}/policy` resource, which contains a set of links to access control
   policy documents.
 * <dfn id="backends-available">`backends-available`</dfn>
@@ -2287,7 +2298,7 @@ The collection `linkset` resource (one of the [[[#collection-level-reserved-endp
 located at `/space/{space_id}/{collection_id}/linkset` contains a set of links
 to auxiliary resources and extension points:
 
-* The [=policy=] relation (`https://wallet.storage/spec#policy`) - A link to the
+* The [=policy relation=] (`https://wallet.storage/spec#policy`) - A link to the
   `/space/{space_id}/{collection_id}/policy` resource, which contains a set of links
   to access control policy documents.
 * <dfn id="backend">`backend`</dfn> (`https://wallet.storage/spec#backend`) - A link to the
