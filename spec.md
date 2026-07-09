@@ -26,6 +26,37 @@ This specification aims to provide:
 * An authorization profile for use with this storage, see
   [[[#was-authorization-profile-v0-1]]].
 
+### Reading This Document
+
+<div class="note">
+This subsection is non-normative. It collects conventions that the rest of the
+document relies on, so that a section read in isolation is still intelligible.
+
+**`Authorization: ...` is a placeholder.** Every request example that carries an
+`Authorization` header abbreviates a signed [=zCaps=] (capability) invocation
+(as opposed to a bearer token). Reads are authorized in WAS just as writes are.
+The expanded form -- with the `Digest`, `Capability-Invocation`, and `Signature`
+headers -- appears once, in [[[#performing-authorized-api-calls]]].
+
+**A trailing slash means the container.** A path ending in `/` addresses a
+container: `GET` lists its members and `POST` adds a member to it. The same path
+*without* the trailing slash addresses the item itself: `GET` returns that item's
+description, `PUT` creates or replaces it, `DELETE` removes it. So
+`/space/{space_id}/{collection_id}/` is the Collection's member list, while
+`/space/{space_id}/{collection_id}` is the Collection's description.
+
+**All examples share one Space.** Every example in this document uses the Space
+id `81246131-69a4-45ab-9bff-9c946b59cf2e` on the host `example.com`. Path
+segments in braces -- `{space_id}`, `{collection_id}`, `{resource_id}` -- are
+placeholders for those identifiers.
+
+**Normative lists live in the appendices.** Error `type` URIs are catalogued in
+[[[#error-type-registry]]], path segments this specification reserves in
+[[[#reserved-path-segment-registry]]], and client-side encryption schemes in
+[[[#encryption-scheme-registry]]]. Those registries are normative: they, not the
+surrounding prose, are where an implementation looks such values up.
+</div>
+
 ### Use Cases
 
 Initial use cases that are motivating this work:
@@ -49,8 +80,8 @@ order. Each tier adds optional capability on top of the one before it, so an
 implementer can stop at any tier and still be conformant. The normative body,
 by contrast, is organized container-first (outermost to innermost: Spaces
 Repositories, Spaces, Collections, then Resources), which is convenient as a
-reference but is the reverse of the tiers. **New to WAS?** Scan the profile
-table below for the conformance tiers, then walk through
+reference but is the reverse of the tiers. If you're new to the spec, scan the
+profile table below for the conformance tiers, then walk through
 [[[#quickstart-your-first-request]]] to watch a request succeed. The core tier
 is just [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].
 
@@ -92,9 +123,9 @@ the stated requirements.
 
 <div class="note">
 This walkthrough is a non-normative tutorial, not a conformance requirement. It
-assumes a server that already hosts a single Space `{space_id}`, and that you
-are that Space's [=controller=]. The goal is to store one JSON Resource and read
-it back.
+assumes a server that already hosts a single Space as well as a
+`messages` collection, and that you are that Space's [=controller=]. The goal is
+to store one JSON Resource and read it back.
 </div>
 
 **Step 1 -- Write.** `PUT` a JSON document to a resource path under a collection.
@@ -129,8 +160,8 @@ Content-type: application/json
 {"message":"hi"}
 ```
 
-The `Authorization: ...` placeholder stands for a signed zCap invocation, not a
-bearer token. WAS reads are authorized too, so the header is required on the
+(The `Authorization: ...` placeholder stands for a signed zCap invocation).
+WAS reads are authorized too, so the header is required on the
 `GET` just as on the `PUT`. How that credential is constructed is defined in
 [[[#performing-authorized-api-calls]]], and its fully expanded form -- with the
 `Digest`, `Capability-Invocation`, and `Signature` headers spelled out -- is
@@ -148,18 +179,15 @@ delegate access to others -- see the conformance-profile table in
 API summary at a glance.
 
 **Unless otherwise specified** by the [=controller=], all **operations
-require authorization**. This can be overridden by the controller via the `policy`
-policy endpoints. Hosting "public-read" resources, such as HTML files for websites,
-or media files you can link to via `<img src="">`, is a common and valid use
-case.
+require authorization**. This can be overridden by the controller via the `/policy`
+endpoints. Hosting "public-read" resources, such as HTML files for websites,
+or media files you can link to via `<img src="">`, is a common use case.
 
 The endpoints below divide into a **Core** profile that every conformant server
 implements, and **Optional extensions** grouped by feature. Each row links to the
 section that defines its operation. Rows marked **Reserved** name a path this
-specification anchors (see [[[#reserved-path-segment-registry]]]) but does not yet
-define an operation for; a server MUST NOT repurpose a reserved path.
-
----
+specification anchors (see [[[#reserved-path-segment-registry]]]) but does not
+yet define an operation for; a server MUST NOT repurpose a reserved path.
 
 #### Core
 
@@ -173,8 +201,6 @@ define an operation for; a server MUST NOT repurpose a reserved path.
   fetching the whole resource. However, do not rely on this for atomic inserts
   (that is, to check if a resource exists before attempting to create it).
   Instead, use the backend-specific Transaction mechanisms when appropriate.
-
----
 
 #### Optional extensions
 
