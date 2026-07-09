@@ -3352,9 +3352,12 @@ their own, and encryption alone serves as the access control mechanism.
 
 This storage specification is intentionally positioned to _not_ be used in such
 environments. All encryption has an unpredictable half-life, and some use cases
-do not permit relying on encryption only for access control. Instead, a
-_combination_ of encryption and authorization enforcement by minimally trusted
-storage servers is required.
+do not permit relying on encryption only for access control.
+
+What this specification pursues instead is a _combination_ of the two:
+encryption protects data at rest and in transit, while minimally trusted
+[=servers=] independently enforce the applicable [=policy=] on every request.
+A broken cipher alone therefore does not grant an attacker access.
 
 </section>
 
