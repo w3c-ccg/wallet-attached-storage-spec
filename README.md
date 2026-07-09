@@ -26,6 +26,7 @@ full text, following the [llmstxt.org](https://llmstxt.org/) convention.
 - [Usage](#usage)
   - [Editing](#editing)
   - [Testing](#testing)
+  - [Publishing](#publishing)
 
 ## Background
 
@@ -33,8 +34,7 @@ You can access the latest version of this specification at:
 
 https://w3c-ccg.github.io/wallet-attached-storage-spec/
 
-The W3C Community Group that is working on this specification can be found
-here:
+The W3C Community Group working on this specification can be found here:
 
 https://w3c-ccg.github.io/
 
@@ -63,8 +63,7 @@ or the [public-credentials mailing list](https://lists.w3.org/Archives/Public/pu
 ### Editing
 
 The specification source is in [`spec.md`](./spec.md), in
-[ReSpec Markdown](https://respec.org/docs/#markdown) format. It is automatically
-imported by `index.html` by the browser at view time.
+[ReSpec Markdown](https://respec.org/docs/#markdown) format.
 
 ### Testing
 
@@ -73,3 +72,26 @@ For testing locally, you can `npm i -g http-server`, and then:
 ```
 http-server ./
 ```
+
+### Publishing
+
+The published site is built by [`.github/workflows/publish.yml`](.github/workflows/publish.yml)
+on every push to `main`, and deployed to GitHub Pages. The workflow runs the
+[ReSpec CLI](https://respec.org/docs/#respec-cli) over `index.html` and publishes:
+
+| Path        | Contents                                                                                                                             |
+|-------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `/`         | A static, pre-rendered snapshot of the spec. Readable without JavaScript, so search engines, `curl`, and agents see the full text.   |
+| `/live/`    | The original ReSpec page, rendered client-side from `spec.md` at view time.                                                          |
+| `/spec.md`  | The Markdown source.                                                                                                                 |
+| `/llms.txt` | The [llmstxt.org](https://llmstxt.org/) index.                                                                                       |
+
+Pull requests build the snapshot as a check but do not deploy it. To render a
+snapshot yourself:
+
+```
+npx respec@latest --src index.html --out snapshot.html --localhost
+```
+
+The repository's Pages source must be set to **GitHub Actions** (rather than
+"Deploy from a branch") for the workflow to publish.

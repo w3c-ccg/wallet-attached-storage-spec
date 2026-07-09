@@ -1,3 +1,7 @@
+# Rendered spec output (built by .github/workflows/publish.yml)
+_site/
+snapshot.html
+
 # Logs
 logs
 *.log
