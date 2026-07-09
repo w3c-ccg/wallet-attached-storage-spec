@@ -10,7 +10,7 @@ Rendered version: https://w3c-ccg.github.io/wallet-attached-storage-spec/
 
 </div>
 
-## Introduction
+## Introduction {#introduction}
 
 The Wallet Attached Storage (WAS) specification brings together the lessons
 learned from many attempts to standardize permissioned cloud storage over
@@ -70,7 +70,7 @@ Initial use cases that are motivating this work:
 * Enabling the "bring your own storage" architecture pattern of web app development
 * Providing data storage and authorization frameworks for Agentic AI
 
-### Scope and Conformance Profiles
+### Scope and Conformance Profiles {#scope-and-conformance-profiles}
 
 This specification represents a layered and modular approach to storage, combining
 core features and optional extension points.
@@ -119,7 +119,7 @@ informative. Optionality is orthogonal to normativity: many normative sections
 describe OPTIONAL endpoint groups, but a server that implements them MUST follow
 the stated requirements.
 
-### Quickstart: Your First Request
+### Quickstart: Your First Request {#quickstart-your-first-request}
 
 <div class="note">
 This walkthrough is a non-normative tutorial, not a conformance requirement. It
@@ -174,7 +174,7 @@ delegate access to others -- see the conformance-profile table in
 [[[#scope-and-conformance-profiles]]] and the full endpoint map in
 [[[#api-summary]]].
 
-### API Summary
+### API Summary {#api-summary}
 
 API summary at a glance.
 
@@ -320,7 +320,7 @@ Required if Space endpoints or Collection endpoints are supported.
     details.</dd>
 </dl>
 
-## Identifiers
+## Identifiers {#identifiers}
 
 ### Identifier Required Properties
 
@@ -378,7 +378,7 @@ to be multiple profiles and specs that could be used to perform WAS API
 calls. However, to start with, this specification will focus on a single minimal
 authorization profile.
 
-### WAS Authorization Profile v0.1
+### WAS Authorization Profile v0.1 {#was-authorization-profile-v0-1}
 
 Like many authorization specifications, the W.A.S. Authorization Profile tries
 to address opposing tensions. On the one hand, to cover the full range of use
@@ -418,7 +418,7 @@ The initial W.A.S. Authorization Profile uses the following specifications.
    [[[#access-control-policies]]] (`PublicCanRead` is the only normative type for
    v0.1)
 
-#### Space `controller` and the Root of Trust
+#### Space `controller` and the Root of Trust {#space-controller-and-the-root-of-trust}
 
 Conceptually, the space's controller serves as the root of trust and authorization
 for any operations on the space or its collections or resources.
@@ -456,7 +456,7 @@ not apply: no Space, and therefore no policy, exists yet.)
 See [[[#http-api-post-spaces]]] below for examples of `controller`
 determination and verification.
 
-#### Performing Authorized API Calls
+#### Performing Authorized API Calls {#performing-authorized-api-calls}
 
 Unless otherwise explicitly allowed via access control policy (see below),
 all W.A.S. API calls require authorization.
@@ -475,7 +475,7 @@ placeholder, `Authorization: ...`, rather than reproducing a full signature or
 capability invocation. In each case it stands for a credential constructed as
 described in [[[#performing-authorized-api-calls]]].
 
-#### Request Body Integrity (Digest Header)
+#### Request Body Integrity (Digest Header) {#request-body-integrity-digest-header}
 
 When an authorized request carries a body (a Resource write, a Space create,
 and so on), this profile binds the body to the request's HTTP Signature so
@@ -532,7 +532,7 @@ with a multihash value; migration to `Content-Digest` (alongside the move to
 [[RFC9421]] HTTP Message Signatures) is a future direction for this profile.
 </div>
 
-#### Authorization Actions and the Root Capability
+#### Authorization Actions and the Root Capability {#authorization-actions-and-the-root-capability}
 
 A capability invocation names an [=action=] that the invoked capability must
 permit. WAS uses the uppercase HTTP method names as its action vocabulary:
@@ -557,7 +557,7 @@ A request is authorized by a capability when all the following hold:
    valid HTTP Signature over the request (see
    [[[#performing-authorized-api-calls]]]).
 
-##### Root Capability
+##### Root Capability {#root-capability}
 
 Every [=target=] has an implied **root capability** whose `controller` is the
 Space's [=controller=]. It is identified by the URI `urn:zcap:root:` followed by
@@ -578,7 +578,7 @@ controller's DID document -- to perform any operation. This is the "root access"
 path. All other authorized access derives from a capability delegated, directly
 or transitively, from this root.
 
-##### Delegation
+##### Delegation {#delegation}
 
 To grant another agent access, the [=controller=] (or any agent holding a
 sufficiently broad capability) delegates a capability that names the grantee as
@@ -652,7 +652,7 @@ Content-type: application/json
 { "type": "PublicCanRead" }
 ```
 
-#### Access Control Policies
+#### Access Control Policies {#access-control-policies}
 
 Capabilities answer the question "does the caller hold a credential that grants
 this action?" Access control *policies* answer the complementary question
@@ -696,7 +696,7 @@ still require a capability. Setting it on a Space makes the whole Space
 public-readable (subject to any more specific Collection or Resource policy);
 setting it on a single Resource exposes only that Resource.
 
-## Error Handling
+## Error Handling {#error-handling}
 
 This specification uses [[RFC9457]] Problem Details for HTTP APIs for error responses.
 
@@ -763,7 +763,7 @@ Freshness lifetime and `Cache-Control` directive semantics beyond validation
 are not yet specified.
 </div>
 
-### Conditional Requests
+### Conditional Requests {#conditional-requests}
 
 Servers and backends MAY support [[RFC9110]] conditional requests to provide
 optimistic concurrency control on writes -- the mechanism that prevents the
@@ -808,7 +808,7 @@ taken) and [=reserved-id=] -- which describe a conflict with current state where
 the client stated no precondition. Conditional requests are the versioned,
 header-driven concurrency mechanism; the `409` kinds are not.
 
-### Paginated List Responses
+### Paginated List Responses {#paginated-list-responses}
 
 The list operations -- [[[#list-spaces-operation]]], [[[#list-all-collections-operation]]],
 and [[[#list-collection-operation]]] -- MAY paginate their responses, returning
@@ -817,7 +817,7 @@ one page of items at a time using the cursor-based profile defined in Appendix
 a single response is conformant, and a client MUST be prepared for either
 behavior.
 
-## Spaces Repositories
+## Spaces Repositories {#spaces-repositories}
 
 A Spaces Repository is a set of API endpoints that supports the creation and
 management of multiple spaces on a given [=server=].
@@ -832,7 +832,7 @@ standalone companion specification (multi-tenant space provisioning) in a
 future version of this document.
 </div>
 
-### Create Space operation
+### Create Space operation {#create-space-operation}
 
 To create a Space:
 
@@ -867,7 +867,7 @@ To create a Space:
   - a proof of payment
   - a proof of membership in an organization
 
-#### (HTTP API) POST `/spaces/`
+#### (HTTP API) POST `/spaces/` {#http-api-post-spaces}
 
 To create a space via HTTP API using the Spaces Repository POST API:
 
@@ -905,7 +905,7 @@ Note that in the example above:
 * the `id` was not specified in the body of the request, and so was generated by
   the server and returned in the response
 
-#### Create Space Errors
+#### Create Space Errors {#create-space-errors}
 
 Errors (see [[[#error-type-registry]]] for canonical examples):
 
@@ -970,7 +970,7 @@ revocation status or per-controller onboarding allowances); whether and how to
 disclose those remains provider-defined.
 </div>
 
-### List Spaces Operation
+### List Spaces Operation {#list-spaces-operation}
 
 * Requires appropriate authorization (root zcap invoked by the controller of one
   or more spaces, or a zcap granting permission to read a one or more spaces)
@@ -1026,14 +1026,14 @@ an error: like any list operation it returns the `200 OK` empty-list response
 shown above, revealing nothing about which spaces exist (see
 [[[#error-handling]]]).
 
-## Spaces
+## Spaces {#spaces}
 
 A space is a namespace for collections and a unit of general configuration,
 a volume of storage that contains one or more collections.
 Conceptually, is maps to a disk partition (for file systems), or a database
 (for relational databases).
 
-### Space Data Model
+### Space Data Model {#space-data-model}
 
 `Space` properties:
 
@@ -1060,7 +1060,7 @@ Space properties automatically added by the server:
   documents). See section [[[#space-linkset]]].
   Note that this is one of the [[[#space-level-reserved-endpoints]]].
 
-### Read Space operation
+### Read Space operation {#read-space-operation}
 
 * Requires appropriate authorization (root zcap invoked by the space's controller,
   or a zcap granting permission to read a particular space)
@@ -1106,7 +1106,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   or insufficient authorization. A server MUST return the same error response in
   both cases, per [[[#error-handling]]].
 
-### Update (or Create by Id) Space operation
+### Update (or Create by Id) Space operation {#update-or-create-by-id-space-operation}
 
 When creating or modifying a Space via PUT, the client specifies the `id`
 of the Space.
@@ -1201,7 +1201,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   immutable field, such as setting a body `id` that does not match the
   `{space_id}` in the request URL.
 
-### Delete Space operation
+### Delete Space operation {#delete-space-operation}
 
 * Requires appropriate authorization (root zcap invoked by the space's
   controller, or a zcap granting permission to write to a particular space)
@@ -1235,7 +1235,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   existence.
 * [=invalid-id=] (400) -- the supplied Space `id` is not URL-safe.
 
-### List All Collections operation
+### List All Collections operation {#list-all-collections-operation}
 
 * Returns the list of all Collections in a Space (that the requester has
   permission to access)
@@ -1289,7 +1289,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   insufficient authorization; per [[[#error-handling]]] a Space the caller is
   not authorized to read is indistinguishable from one that does not exist.
 
-## Collections
+## Collections {#collections}
 
 A collection is a namespace for Resources, and a unit of configuration, within
 a space.
@@ -1310,7 +1310,7 @@ that motivate nesting (e.g., "all comments on a post") are better served by the
 `query` endpoint with field-based filtering.
 </div>
 
-### Collection Data Model
+### Collection Data Model {#collection-data-model}
 
 Collection properties (user-writable):
 
@@ -1369,7 +1369,7 @@ Example collection (JSON representation):
 }
 ```
 
-### Create Collection (Add Collection to a Space) operation
+### Create Collection (Add Collection to a Space) operation {#create-collection-add-collection-to-a-space-operation}
 
 When a Collection is created via a `POST`, the client can specify the `id` of
 the Collection. If the `id` is not specified, one is auto-generated by the
@@ -1442,7 +1442,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-backend=] (409) -- the supplied `backend` id is not in that
   space's [[[#space-backends-available]]] list.
 
-### Update (or Create By Id) Collection operation
+### Update (or Create By Id) Collection operation {#update-or-create-by-id-collection-operation}
 
 When creating or modifying a Collection via PUT, the client specifies the `id`
 of the Collection. This Collection `id` MUST NOT collide with the list of
@@ -1479,7 +1479,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   existing `encryption` marker (the marker is set-once; see
   [[[#collection-data-model]]]).
 
-### Get Collection Description operation
+### Get Collection Description operation {#get-collection-description-operation}
 
 * Returns the Collection description object
 * Requires appropriate authorization
@@ -1521,7 +1521,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   the caller is not authorized to read is indistinguishable from one that does
   not exist.
 
-### List Collection operation
+### List Collection operation {#list-collection-operation}
 
 * Returns the list of Collection resources
 * Requires appropriate authorization
@@ -1656,7 +1656,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   the caller is not authorized to read is indistinguishable from one that does
   not exist.
 
-### Delete Collection operation
+### Delete Collection operation {#delete-collection-operation}
 
 #### (HTTP API) DELETE `/space/{space_id}/{collection_id}`
 
@@ -1685,9 +1685,9 @@ Example success response:
 HTTP/1.1 204 No Content
 ```
 
-## Resources and Blobs
+## Resources and Blobs {#resources-and-blobs}
 
-### Blob Data Model
+### Blob Data Model {#blob-data-model}
 
 A unit of data, in transit or at rest.
 (As described in the [W3C FileAPI: Blob Interface](https://w3c.github.io/FileAPI/#blob-section)).
@@ -1707,7 +1707,7 @@ the `contentType` and `size` properties of the Resource's Metadata object
 (see [[[#resource-metadata-data-model]]]), and the stored bytes are returned
 verbatim on reads (see [[[#content-types-and-representations]]]).
 
-### Resource Data Model
+### Resource Data Model {#resource-data-model}
 
 A resource is a named (addressable) Blob stored in a given [=collection=],
 with metadata.
@@ -1739,7 +1739,7 @@ Resource properties:
   reserved `/meta` path segment under the Resource URL. See
   [[[#resource-metadata-data-model]]].
 
-### Content Types and Representations
+### Content Types and Representations {#content-types-and-representations}
 
 A Resource has exactly one current representation: the stored bytes plus
 the content type they are stored under. Every successful write (POST or PUT)
@@ -1784,7 +1784,7 @@ available as `application/json`. Linkset documents use
 representations of these documents (negotiated via `Accept`) MAY be offered
 in addition to, never instead of, the JSON baseline.
 
-### Create Resource (Add Resource to Collection) Operation
+### Create Resource (Add Resource to Collection) Operation {#create-resource-add-resource-to-collection-operation}
 
 #### (HTTP API) POST `/space/{space_id}/{collection_id}/`
 
@@ -1857,7 +1857,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
   `maxUploadBytes` constraint (see [[[#quotas]]]).
 
-### Read Resource Operation
+### Read Resource Operation {#read-resource-operation}
 
 A read returns the Resource's single stored representation, with the stored
 content type; see [[[#content-types-and-representations]]] for content type
@@ -1895,7 +1895,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   the caller is not authorized to read is indistinguishable from one that does
   not exist.
 
-### Update (or Create By Id) Resource Operation
+### Update (or Create By Id) Resource Operation {#update-or-create-by-id-resource-operation}
 
 When creating or modifying a Resource via PUT, the client specifies the `id`
 of the Resource. This Resource `id` MUST NOT collide with the list of
@@ -1993,7 +1993,7 @@ This operation accepts the `If-Match` / `If-None-Match` write preconditions
 described in [[[#conditional-requests]]] when the target backend advertises the
 `conditional-writes` feature.
 
-### Delete Resource Operation
+### Delete Resource Operation {#delete-resource-operation}
 
 #### (HTTP API) DELETE `/space/{space_id}/{collection_id}/{resource_id}`
 
@@ -2031,7 +2031,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   returns `404`, per [[[#error-handling]]], so that an unauthorized caller
   cannot probe for existence.
 
-### Resource Metadata Data Model
+### Resource Metadata Data Model {#resource-metadata-data-model}
 
 Each Resource has an associated **Metadata object**, addressable at the
 reserved `/meta` path segment under the Resource URL (one of the
@@ -2110,7 +2110,7 @@ deleted. There is no `DELETE /meta` operation; to clear the user-writable
 properties, send a `PUT` with an empty `custom` object (`{ "custom": {} }`)
 or an empty body object (`{}`).
 
-### Read Resource Metadata Operation
+### Read Resource Metadata Operation {#read-resource-metadata-operation}
 
 #### (HTTP API) GET `/space/{space_id}/{collection_id}/{resource_id}/meta`
 
@@ -2156,7 +2156,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
-### Update Resource Metadata Operation
+### Update Resource Metadata Operation {#update-resource-metadata-operation}
 
 A `PUT` to the `/meta` endpoint is a _full_ replacement of the Metadata
 object's `custom` object: the stored `custom` object is replaced by the one
@@ -2215,7 +2215,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
-## Linksets
+## Linksets {#linksets}
 
 Linksets (from [[RFC9264]]) serve as the main feature detection and extension
 mechanism. They can be discovered, via the `linkset` property, from the following:
@@ -2223,7 +2223,7 @@ mechanism. They can be discovered, via the `linkset` property, from the followin
 * The Space Description object, see [[[#space-data-model]]].
 * The Collection Description object, see [[[#collection-data-model]]].
 
-### Space Linkset
+### Space Linkset {#space-linkset}
 
 The space `linkset` resource (one of the [[[#space-level-reserved-endpoints]]]),
 located at `/space/{space_id}/linkset` contains a set of links to auxiliary
@@ -2281,7 +2281,7 @@ Content-type: application/linkset+json
 }
 ```
 
-### Collection Linkset
+### Collection Linkset {#collection-linkset}
 
 The collection `linkset` resource (one of the [[[#collection-level-reserved-endpoints]]]),
 located at `/space/{space_id}/{collection_id}/linkset` contains a set of links
@@ -2340,7 +2340,7 @@ Content-type: application/linkset+json
 }
 ```
 
-## Backends
+## Backends {#backends}
 
 Backends are an **optional** infrastructure concern that is orthogonal to the
 hierarchical Spaces Repository > Space > Collection > Resource storage model.
@@ -2363,7 +2363,7 @@ An implementer or client of a given server can omit the `backend` property when
 creating a Collection. By default, if not specified, all Collections are
 assigned the `default` backend.
 
-### Backend Data Model
+### Backend Data Model {#backend-data-model}
 
 A Backend description object advertises a backend's identity and capabilities,
 so that clients can select a suitable backend for each Collection (and so that
@@ -2435,7 +2435,7 @@ connections vs OAuth-style setup flows for external providers) is not yet
 specified.
 </div>
 
-### Space Backends Available
+### Space Backends Available {#space-backends-available}
 
 Example request:
 
@@ -2477,7 +2477,7 @@ Content-type: application/json
 ]
 ```
 
-### Collection Backend Selected
+### Collection Backend Selected {#collection-backend-selected}
 
 Each collection has an optional `backend` property that is set during its creation
 (see [[[#collection-data-model]]]). If not specified, it is assumed to have the
@@ -2519,7 +2519,7 @@ and from access-control [=policy=] (who may act on the data). The property
 naming is to be determined, precisely to avoid overloading the term "policy".
 </div>
 
-## Quotas
+## Quotas {#quotas}
 
 Quota reporting and enforcement are **optional**, and support is
 backend-dependent. A _quota_ is a storage limit enforced per backend; _usage_
@@ -2652,7 +2652,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 <section class="appendix">
 
-## Pagination
+## Pagination {#pagination}
 
 This appendix is normative. It defines the full pagination profile summarized
 in [[[#paginated-list-responses]]].
@@ -2750,11 +2750,11 @@ page.
 
 <section class="appendix">
 
-## Reserved Path Segment Registry
+## Reserved Path Segment Registry {#reserved-path-segment-registry}
 
 This appendix is normative.
 
-### Space-level reserved endpoints
+### Space-level reserved endpoints {#space-level-reserved-endpoints}
 
 The following path segments represent reserved API endpoints for [[[#spaces]]]
 level operations. Usually, the path segment following the `/space/{space_id}/` prefix
@@ -2774,7 +2774,7 @@ collections `id`s MUST NOT collide with the corresponding reserved segments.
 If a client attempts to create a collection with an `id` that collides with a
 reserved segment list above, the server MUST return a 409 Conflict error.
 
-### Collection-level reserved endpoints
+### Collection-level reserved endpoints {#collection-level-reserved-endpoints}
 
 The following path segments represent reserved API endpoints for [[[#collections]]]
 level operations. Usually, the path segment following the
@@ -2793,7 +2793,7 @@ corresponding reserved segments.
 If a client attempts to create a resource with an `id` that collides with a
 reserved segment list above, the server MUST return a 409 Conflict error.
 
-### Resource-level reserved endpoints
+### Resource-level reserved endpoints {#resource-level-reserved-endpoints}
 
 The following path segments represent reserved API endpoints for Resource
 level operations.
@@ -2806,7 +2806,7 @@ level operations.
 
 <section class="appendix">
 
-## Encryption Scheme Registry
+## Encryption Scheme Registry {#encryption-scheme-registry}
 
 This appendix is normative.
 
@@ -2924,7 +2924,7 @@ valid `jwe`) fails this profile and is rejected with an
 
 <section class="appendix">
 
-## Error Type Registry
+## Error Type Registry {#error-type-registry}
 
 This appendix is normative.
 
@@ -3213,7 +3213,7 @@ Content-type: application/problem+json
 
 <section class="appendix informative">
 
-## Goals and Requirements
+## Goals and Requirements {#goals-and-requirements}
 
 This storage specification is intended to support the following goals and
 requirements.
@@ -3360,7 +3360,7 @@ minimally trusted storage servers is required.
 
 <section class="appendix informative">
 
-## IANA Considerations
+## IANA Considerations {#iana-considerations}
 
 This section will be submitted to the Internet Engineering Steering Group (IESG)
 for review, approval, and registration with IANA.
