@@ -1,0 +1,14 @@
+# Wallet Attached Storage (WAS)
+
+> Wallet Attached Storage is a general-purpose permissioned cloud storage API: CRUD over an HTTP hierarchy of Spaces, Collections, and Resources, secured by object-capability (zCap) authorization. Storage is private by default -- only a Space's controller may act on it unless a policy grants otherwise -- and requests that are not authorized return "not found" rather than "not authorized", so the existence of a resource is never leaked. The specification is layered: a minimal conformant server implements only Resource CRUD plus the authorization profile, while listing, collection and space management, multi-tenancy, and extensions (linksets, policies, metadata, export, backends, query, quotas) are each optional.
+
+This is an experimental W3C CCG draft (v0.3), undergoing regular revisions. It is authored as a single Markdown file rendered client-side by ReSpec, so the Markdown source below is the complete and authoritative full text.
+
+## Docs
+
+- [Specification, full text (Markdown source)](https://raw.githubusercontent.com/w3c-ccg/wallet-attached-storage-spec/main/spec.md): The entire normative specification -- data model, HTTP API, error registry, and the WAS Authorization Profile. Read this one if you want everything.
+- [Specification, rendered](https://w3c-ccg.github.io/wallet-attached-storage-spec/): The same document as HTML, with section numbering, cross-references, and a table of contents.
+
+## Optional
+
+- [GitHub repository](https://github.com/w3c-ccg/wallet-attached-storage-spec): Source, issue tracker, and revision history.
