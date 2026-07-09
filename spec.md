@@ -26,6 +26,15 @@ This specification aims to provide:
 * An authorization profile for use with this storage, see
   [[[#was-authorization-profile-v0-1]]].
 
+<div class="note">
+This document is deliberately comprehensive: it specifies both a small required
+core and a set of optional extensions. A conformant minimal server implements
+only Resource CRUD ([[[#resources-and-blobs]]]) and the authorization profile
+([[[#was-authorization-profile-v0-1]]]); every other endpoint group is OPTIONAL.
+See [[[#scope-and-conformance-profiles]]] for the full conformance-tier map, and
+[[[#quickstart-your-first-request]]] to watch a first request succeed.
+</div>
+
 ### Version History
 
 <div class="note">
@@ -2263,6 +2272,11 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 ## Linksets {#linksets}
 
+<div class="note">
+Linksets are an OPTIONAL extension. A server MAY omit this feature-detection
+mechanism entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
+</div>
+
 Linksets (from [[RFC9264]]) serve as the main feature detection and extension
 mechanism. They can be discovered, via the `linkset` property, from the following:
 
@@ -2392,6 +2406,11 @@ Content-type: application/linkset+json
 ```
 
 ## Backends {#backends}
+
+<div class="note">
+This section defines an OPTIONAL extension. A server MAY skip pluggable backends
+entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
+</div>
 
 Backends are an **optional** infrastructure concern that is orthogonal to the
 hierarchical Spaces Repository > Space > Collection > Resource storage model.
@@ -2578,6 +2597,11 @@ naming is to be determined, precisely to avoid overloading the term "policy".
 </div>
 
 ## Quotas {#quotas}
+
+<div class="note">
+This section defines an OPTIONAL extension. A server MAY omit quota reporting and
+enforcement entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
+</div>
 
 [=Quota=] reporting and enforcement are **optional**, and support is
 backend-dependent. The quota API serves two distinct consumers:
@@ -2869,6 +2893,14 @@ level operations.
 
 This appendix is normative.
 
+<div class="note">
+This registry defines values used by an OPTIONAL feature (client-side encryption):
+a server MAY support no encryption schemes and remain conformant; see
+[[[#scope-and-conformance-profiles]]]. Optionality is orthogonal to normativity --
+a server that does implement encrypted Collections MUST follow the wire formats
+catalogued here.
+</div>
+
 A Collection's optional `encryption` marker (see [[[#collection-data-model]]])
 names a client-side encryption `scheme`. This registry maps each `scheme` token
 to the wire format the server can expect for Resources in such a Collection, so
@@ -2986,6 +3018,14 @@ valid `jwe`) fails this profile and is rejected with an
 ## Query Profile Registry {#query-profile-registry}
 
 This appendix is normative.
+
+<div class="note">
+This registry defines values used by an OPTIONAL feature (the query endpoint): a
+server MAY expose no query endpoint and remain conformant; see
+[[[#scope-and-conformance-profiles]]]. Optionality is orthogonal to normativity --
+a server that does serve queries MUST follow the request and response shapes
+catalogued here.
+</div>
 
 A [=collection=] MAY expose an OPTIONAL query endpoint at
 `POST /space/{space_id}/{collection_id}/query`. The endpoint is a single URL that
