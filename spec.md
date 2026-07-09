@@ -26,6 +26,23 @@ This specification aims to provide:
 * An authorization profile for use with this storage, see
   [[[#was-authorization-profile-v0-1]]].
 
+### Version History
+
+<div class="note">
+This subsection is non-normative.
+
+* **v0.1** (January 2025) -- Initial version, created for the MIT Digital
+  Credentials Consortium in collaboration with Benjamin Goering, as the
+  "Wallet Attached Storage" specification.
+* **v0.2** (April 2026) -- Added examples and editorial fixes. Snapshot at
+  <https://wallet.storage/spec>.
+* **v0.3** (through June 2026) -- Initial incubation at MIT DCC, based on
+  implementation experience.
+* (upcoming) **v0.4** (mid-July 2026) -- Migrated to the W3C Credentials Community Group
+  (CCG) for further incubation. Pending rename to the "Web Spaces API"
+  specification.
+</div>
+
 ### Reading This Document
 
 <div class="note">
@@ -128,7 +145,7 @@ assumes a server that already hosts a single Space as well as a
 to store one JSON Resource and read it back.
 </div>
 
-**Step 1 -- Write.** `PUT` a JSON document to a resource path under a collection.
+**Step 1: Write.** `PUT` a JSON document to a resource path under a collection.
 A `204 No Content` confirms the write:
 
 ```http
@@ -144,7 +161,7 @@ Authorization: ...
 HTTP/1.1 204 No Content
 ```
 
-**Step 2 -- Read.** `GET` the same path to retrieve what you just stored:
+**Step 2: Read.** `GET` the same path to retrieve what you just stored:
 
 ```http
 GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world HTTP/1.1
@@ -178,7 +195,7 @@ delegate access to others -- see the conformance-profile table in
 
 API summary at a glance.
 
-**Unless otherwise specified** by the [=controller=], all **operations
+Unless otherwise specified by the [=controller=], all **operations
 require authorization**. This can be overridden by the controller via the `/policy`
 endpoints. Hosting "public-read" resources, such as HTML files for websites,
 or media files you can link to via `<img src="">`, is a common use case.
