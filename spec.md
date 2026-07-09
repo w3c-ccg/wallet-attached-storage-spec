@@ -3346,15 +3346,15 @@ All cryptography has a half-life.
 
 #### Use cases do not include "zero trust" environments
 
-This storage specification is intentionally positioned to not be used in
-"zero trust" environments, which in practice means the usage of untrusted sync
-and replication nodes while solely relying on encryption as the authorization
-mechanism.
+In a "zero trust" storage environment, the sync and replication nodes are
+assumed to be untrusted: they hold only ciphertext, enforce no authorization of
+their own, and encryption alone serves as the access control mechanism.
 
-To put it a different way -- all encryption has an unpredictable half-life, and
-some use cases do not permit relying on encryption only for access control.
-Instead, a _combination_ of encryption and authorization enforcement by
-minimally trusted storage servers is required.
+This storage specification is intentionally positioned to _not_ be used in such
+environments. All encryption has an unpredictable half-life, and some use cases
+do not permit relying on encryption only for access control. Instead, a
+_combination_ of encryption and authorization enforcement by minimally trusted
+storage servers is required.
 
 </section>
 
