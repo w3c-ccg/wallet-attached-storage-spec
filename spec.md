@@ -3135,8 +3135,12 @@ Response body:
       "updatedAt": "2026-01-15T12:00:00.000Z",
       "version": 1,
       "metaVersion": 3,
+      "createdBy": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
       "data": { "message": "hi" },
-      "custom": { "tags": ["greeting"] }
+      "custom": {
+        "name": "Hello World greeting",
+        "tags": { "project": "demo", "status": "draft" }
+      }
     }
   ],
   "checkpoint": { "id": "hello-world", "updatedAt": "2026-01-15T12:00:00.000Z" }
@@ -3156,6 +3160,12 @@ Each entry in `documents` describes one changed Resource:
   it.
 * `metaVersion` - a monotonic metadata version, present only once metadata has
   been written for the Resource, and bumped by a metadata-only edit.
+* `createdBy` - the [=did=] of the Resource's creator, as defined in
+  [[[#resource-metadata-data-model]]]. A server that records `createdBy` SHOULD
+  surface it here, so that a replica learns each Resource's creator from the feed
+  rather than dereferencing the `meta` sub-resource of every Resource it pulls.
+  Present only when recorded; a client MUST treat an absent `createdBy` as "not
+  recorded". It is server-managed and read-only, as it is everywhere else.
 * `data` - the stored JSON body verbatim. The body is nested under `data` (rather
   than spread onto the entry) so that a non-object JSON body round-trips
   faithfully. Omitted on a tombstone.
@@ -3166,7 +3176,9 @@ Each entry in `documents` describes one changed Resource:
 
 **Tombstones.** A soft-deleted Resource surfaces as
 `{ "id", "_deleted": true, "updatedAt", "version" }` with no `data` member;
-the deletion bumps `version`.
+the deletion bumps `version`. A tombstone retains its `createdBy`, where one was
+recorded, so that a deletion replicates together with the attribution of the
+Resource it removes.
 
 **Ordering and resumption.** Entries are ordered by an ascending `(updatedAt, id)`
 keyset. The top-level `checkpoint` echoes the position of the last entry in
@@ -3202,6 +3214,7 @@ Content-type: application/json
       "_deleted": false,
       "updatedAt": "2026-01-15T12:00:00.000Z",
       "version": 1,
+      "createdBy": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
       "data": { "message": "hi" }
     }
   ],
