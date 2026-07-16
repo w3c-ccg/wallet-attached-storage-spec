@@ -48,8 +48,8 @@ This subsection is non-normative.
 * **v0.3** (through June 2026) -- Initial incubation at MIT DCC, based on
   implementation experience.
 * (upcoming) **v0.4** (mid-July 2026) -- Migrated to the W3C Credentials Community Group
-  (CCG) for further incubation. Pending rename to the "Web Spaces API"
-  specification.
+  (CCG) for further incubation. Likely pending a rename (to be discussed by the
+  group).
 </div>
 
 ### Reading This Document
@@ -59,7 +59,7 @@ This subsection is non-normative. It collects conventions that the rest of the
 document relies on, so that a section read in isolation is still intelligible.
 
 **`Authorization: ...` is a placeholder.** Every request example that carries an
-`Authorization` header abbreviates a signed [=zCaps=] (capability) invocation
+`Authorization` header abbreviates a signed [=zCap=] (capability) invocation
 (as opposed to a bearer token). Reads are authorized in WAS just as writes are.
 The expanded form -- with the `Digest`, `Capability-Invocation`, and `Signature`
 headers -- appears once, in [[[#performing-authorized-api-calls]]].
@@ -98,11 +98,11 @@ Initial use cases that are motivating this work:
 
 ### Scope and Conformance Profiles {#scope-and-conformance-profiles}
 
-This specification represents a layered and modular approach to storage, combining
-core features and optional extension points.
+This specification represents a layered and modular approach to storage,
+combining core features and optional extension points.
 
-The layers below describe **conformance tiers**, not the document's reading
-order. Each tier adds optional capability on top of the one before it, so an
+The layers below describe **conformance tiers**.
+Each tier adds optional capability on top of the one before it, so an
 implementer can stop at any tier and still be conformant. The normative body,
 by contrast, is organized container-first (outermost to innermost: Spaces
 Repositories, Spaces, Collections, then Resources), which is convenient as a
@@ -111,21 +111,20 @@ profile table below for the conformance tiers, then walk through
 [[[#quickstart-your-first-request]]] to watch a request succeed. The core tier
 is just [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].
 
-| Profile | Adds | Defining sections |
-|---|---|---|
-| **Minimal** | Resource CRUD (KV + blob read/write) + authorization | [[[#resources-and-blobs]]], [[[#was-authorization-profile-v0-1]]] |
-| **+ Listing** | list resources / collections / spaces | [[[#list-collection-operation]]], [[[#list-all-collections-operation]]], [[[#list-spaces-operation]]] |
-| **+ Collection mgmt** | create / manage collections in a Space | [[[#collections]]] |
-| **+ Space mgmt** | manage an individual Space | [[[#read-space-operation]]] (Space endpoints) |
-| **+ Multi-tenant** | create / manage many Spaces on a server | [[[#spaces-repositories]]] |
-| **+ Extensions** | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]] |
+| Profile               | Adds                                                                                             | Defining sections                                                                                     |
+|-----------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| **Minimal**           | Resource CRUD (KV + blob read/write) + authorization                                             | [[[#resources-and-blobs]]], [[[#was-authorization-profile-v0-1]]]                                     |
+| **+ Listing**         | list resources / collections / spaces                                                            | [[[#list-collection-operation]]], [[[#list-all-collections-operation]]], [[[#list-spaces-operation]]] |
+| **+ Collection mgmt** | create / manage collections in a Space                                                           | [[[#collections]]]                                                                                    |
+| **+ Space mgmt**      | manage an individual Space                                                                       | [[[#read-space-operation]]] (Space endpoints)                                                         |
+| **+ Multi-tenant**    | create / manage many Spaces on a server                                                          | [[[#spaces-repositories]]]                                                                            |
+| **+ Extensions**      | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]]                                                                                       |
 
 Each tier stacks on the one above it. The **Minimal** profile is a permissioned
-key/value (and blob) CRUD API built from simple HTTP verbs and delegatable
+key/value CRUD API built from simple HTTP verbs and delegatable
 capability-based authorization -- enough, on its own, to read and write any
 resource (text, structured document, or binary blob) without collection or
-space management. Adding **Listing** is what lets you "implement a blog with
-comments in 15 minutes". **Collection** and **Space** management will feel
+space management.**Listing**, **Collection** and **Space** management will feel
 familiar to anyone who has used a GUI front end for a database or file system.
 **Multi-tenant** support lets a provider host many Spaces on one server. The
 **Extensions** tier layers on optional features -- an access-policy resource,
@@ -188,7 +187,7 @@ Content-type: application/json
 
 (The `Authorization: ...` placeholder stands for a signed zCap invocation).
 WAS reads are authorized too, so the header is required on the
-`GET` just as on the `PUT`. How that credential is constructed is defined in
+`GET` just as on the `PUT`. How that invocation is constructed is defined in
 [[[#performing-authorized-api-calls]]], and its fully expanded form -- with the
 `Digest`, `Capability-Invocation`, and `Signature` headers spelled out -- is
 shown once in the worked example within that section. Producing that signature
@@ -205,9 +204,10 @@ delegate access to others -- see the conformance-profile table in
 API summary at a glance.
 
 Unless otherwise specified by the [=controller=], all **operations
-require authorization**. This can be overridden by the controller via the `/policy`
-endpoints. Hosting "public-read" resources, such as HTML files for websites,
-or media files you can link to via `<img src="">`, is a common use case.
+require authorization**. This can be overridden by the controller via the
+(optional) `/policy` endpoints. Hosting "public-read" resources, such as HTML
+files for websites, or media files you can link to via `<img src="">`, is a
+common use case.
 
 The endpoints below divide into a **Core** profile that every conformant server
 implements, and **Optional extensions** grouped by feature. Each row links to the
@@ -275,9 +275,12 @@ Policy overrides are hierarchical and inherited. A policy set for the entire
 Space applies to all its Collections and Resources (unless overridden by a
 more specific policy, either at the Collection or Resource level).
 
-* `GET|PUT|DELETE /space/{space_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Space.
-* `GET|PUT|DELETE /space/{space_id}/{collection_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Collection.
-* `GET|PUT|DELETE /space/{space_id}/{collection_id}/{resource_id}/policy` -- **Reserved / not yet specified.** CRUD on the policy object for the Resource.
+* `GET|PUT|DELETE /space/{space_id}/policy` -- **Reserved / not yet specified.**
+  CRUD on the policy object for the Space.
+* `GET|PUT|DELETE /space/{space_id}/{collection_id}/policy` -- **Reserved / not
+  yet specified.** CRUD on the policy object for the Collection.
+* `GET|PUT|DELETE /space/{space_id}/{collection_id}/{resource_id}/policy` --
+  **Reserved / not yet specified.** CRUD on the policy object for the Resource.
 
 **Linkset / Discovery Endpoints:**
 
@@ -288,8 +291,9 @@ Required if Space endpoints or Collection endpoints are supported.
 
 **Query Endpoints:**
 
-* `POST /space/{space_id}/query` -- **Reserved / not yet specified.** Cross-collection queries (backend-specific).
-* `POST /space/{space_id}/{collection_id}/query` -- (OPTIONAL) Queries within a Collection, discriminated by a request-body `profile`; catalogued in [[[#query-profile-registry]]].
+* `POST /space/{space_id}/query` -- Cross-collection queries (backend-specific).
+* `POST /space/{space_id}/{collection_id}/query` -- Queries within a Collection,
+  discriminated by a request-body `profile`; catalogued in [[[#query-profile-registry]]].
 
 **Backend Management Endpoints** (see [[[#backends]]]):
 
@@ -330,7 +334,7 @@ Required if Space endpoints or Collection endpoints are supported.
     database tables (for RDBMSs). See section [[[#collections]]].</dd>
 
   <dt><dfn data-lt="controllers">controller</dfn></dt>
-  <dd>An entity that has the capability to make changes to a given object.</dd>
+  <dd>An entity that can make changes to a given object.</dd>
 
   <dt><dfn data-lt="did|dids">decentralized identifier (DID)</dfn></dt>
   <dd>See [[DID-CORE]].</dd>
@@ -365,8 +369,8 @@ Required if Space endpoints or Collection endpoints are supported.
     that target are delegated. See section [[[#root-capability]]].</dd>
 
   <dt><dfn data-lt="target|invocationTarget|targets">target (invocationTarget)</dfn></dt>
-  <dd>The resource a request acts on -- the full request URL (scheme, host, port,
-    and path) -- and the scope a capability authorizes. A capability's
+  <dd>The resource a request acts on, including the full request URL (scheme,
+    host, port, and path) -- and the scope a capability authorizes. A capability's
     `invocationTarget` MUST match the request target for the invocation to be
     valid. See section [[[#authorization-actions-and-the-root-capability]]].</dd>
 
@@ -435,12 +439,12 @@ authorization profile.
 
 ### WAS Authorization Profile v0.1 {#was-authorization-profile-v0-1}
 
-Like many authorization specifications, the W.A.S. Authorization Profile tries
+Like many authorization specifications, the WAS Authorization Profile tries
 to address opposing tensions. On the one hand, to cover the full range of use
 cases, it needs to be delegatable, revocable, secure, flexible, and thus
-capability based. On the other hand, for ease of implementation and adoption,
+ capability-based. On the other hand, for ease of implementation and adoption,
 and for maximum developer usability, the profile must make the most common
-operations as simple and friction free as possible.
+operations as simple and friction-free as possible.
 
 To that end, the profile offers the following layered mechanisms.
 
@@ -458,11 +462,11 @@ To that end, the profile offers the following layered mechanisms.
 
 #### Authorization Specification Dependencies at a Glance
 
-The initial W.A.S. Authorization Profile uses the following specifications.
+The initial WAS Authorization Profile uses the following specifications.
 
 1. Identity (for controllers or clients/agents): [DID 1.0](https://www.w3.org/TR/did-1.0/)
 2. Capability data model: [Authorization Capabilities for Linked Data v0.3](https://w3c-ccg.github.io/zcap-spec/)
-3. Protocol for obtaining authorization: Out of scope (implementers are encouraged
+3. Protocol for getting authorization: Out of scope (implementers are encouraged
    to use VC-API, OpenId4VP, OAuth2, or GNAP, as appropriate)
 4. Proof of Possession / authorization invocation: HTTP Signatures.
    MUST - [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html),
@@ -514,7 +518,7 @@ determination and verification.
 #### Performing Authorized API Calls {#performing-authorized-api-calls}
 
 Unless otherwise explicitly allowed via access control policy (see below),
-all W.A.S. API calls require authorization.
+all WAS API calls require authorization.
 
 This can be done in one of two ways:
 
@@ -718,8 +722,8 @@ having to issue a capability to each caller.
 
 A policy is a JSON document with a required `type` property, stored at the
 `/policy` auxiliary resource of a Space, Collection, or Resource and
-discoverable via the [=policy relation=] in the linkset (see [[[#space-linkset]]] and
-[[[#collection-linkset]]]).
+discoverable via the [=policy relation=] in the linkset (see [[[#space-linkset]]]
+and [[[#collection-linkset]]]).
 
 **Evaluation contract:**
 
@@ -753,9 +757,11 @@ setting it on a single Resource exposes only that Resource.
 
 ## Error Handling {#error-handling}
 
-This specification uses [[RFC9457]] Problem Details for HTTP APIs for error responses.
+This specification uses [[RFC9457]] Problem Details for HTTP APIs for error
+responses.
 
-* Error responses SHOULD be returned using the `application/problem+json` content type.
+* Error responses SHOULD be returned using the `application/problem+json`
+  content type.
 * `type` and `title` properties are REQUIRED.
 * `errors` array with `{ detail, pointer }` objects is encouraged where appropriate.
 
@@ -821,7 +827,7 @@ are not yet specified.
 ### Conditional Requests {#conditional-requests}
 
 Servers and backends MAY support [[RFC9110]] conditional requests to provide
-optimistic concurrency control on writes -- the mechanism that prevents the
+optimistic concurrency control on writes. This mechanism helps prevent the
 "lost update" problem, where two clients that both read version N of a Resource
 each write version N+1 and the second silently clobbers the first. A backend
 that supports this advertises the `conditional-writes` feature in its Backend
@@ -917,7 +923,7 @@ To create a Space:
     controller".
 
 * (Optional, out of scope) A given storage provider MAY impose additional
-  requirements in order to create a Space for a given controller, such as:
+  requirements to create a Space for a given controller, such as:
   - a Verifiable Credential representing a pre-arranged onboarding coupon
   - a proof of payment
   - a proof of membership in an organization
@@ -968,14 +974,14 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   missing from the request body.
 * [=missing-authorization=] (401) -- the request lacks a valid proof of
   possession of the `controller` DID.
-* [=controller-mismatch=] (400) -- the invocation is not *currently*
+* [=controller-mismatch=] (400) -- the invocation is not currently
   authorized by the `controller` DID in the request body: it is neither signed
   by that DID nor accompanied by a valid, unexpired delegation chain rooted in
   it. A chain rooted in a different DID, an expired delegation, and a chain
-  whose proof fails verification all fall under this one type; servers are not
-  required to distinguish them (delegation-chain verifiers often report
+  whose proof fails verification all fall under this one type. Servers are not
+  required to distinguish these (delegation-chain verifiers often report
   failure opaquely), but SHOULD differentiate the cause in the non-normative
-  `detail` string where they can -- in a delegated provisioning flow, the
+  `detail` string where they can. In a delegated provisioning flow, the
   cause determines who must act (the user re-delegates an expired capability;
   the service corrects a request whose chain is rooted in the wrong DID).
 * [=invalid-id=] (400) -- the supplied Space `id` is not URL-safe (see
@@ -998,7 +1004,7 @@ body* -- the Space does not exist yet, so there is no stored controller to
 verify against. A server that instead treats `POST /spaces/` as
 create-or-replace turns this operation into a takeover: any caller able to
 construct a valid invocation for their *own* `controller` could overwrite an
-existing Space's description -- controller included -- simply by POSTing its
+existing Space's description (controller included) simply by POSTing its
 `id`. Servers MUST check for an existing Space with the supplied `id`, and
 reject with [=id-conflict=], before writing anything.
 
@@ -1017,8 +1023,8 @@ also bound who can observe it.
 <div class="note">
 Differentiated `detail` strings on [=controller-mismatch=] are likewise
 privacy-safe: Create Space has no existing target to protect, and everything
-its verification examines -- the body's `controller`, the capability chain,
-its signatures -- is supplied by the caller, so failure granularity reveals
+its verification examines (the body's `controller`, the capability chain,
+its signatures) is supplied by the caller, so failure granularity reveals
 nothing the caller does not already hold. This reasoning does *not* extend to
 failure causes that depend on server-side state (for example, capability
 revocation status or per-controller onboarding allowances); whether and how to
@@ -1206,12 +1212,13 @@ the Space by writing a new `controller` does not rewrite its creator.
 #### (HTTP API) PUT `/space/{space_id}`
 
 Note that this is a _full_ update (partial updates via http `PATCH` verb might
-be supported later). However, some fields may not be updated (like `id`) and so
+be supported later). However, some fields cannot be updated (like `id`) and so
 may be omitted from the request payload.
 
 Note that this operation is idempotent.
 
-* When creating a space via PUT, a `controller` property is required in the PUT request body.
+* When creating a space via PUT, a `controller` property is required in the PUT
+  request body.
 
 Example request (creating a new space via PUT), note the lack of trailing slash:
 
@@ -1366,8 +1373,8 @@ A collection is a namespace for Resources, and a unit of configuration, within
 a space.
 
 In other storage systems, the concept of collections has many different names.
-For example, _Directory, Folder, RDBMS Table, Document Collection, Graph, WebAPI
-FileList, Bucket, LDP Basic Container, EDV Vault_, and so on.
+For example, *Directory, Folder, RDBMS Table, Document Collection, Graph, WebAPI
+FileList, Bucket, LDP Basic Container, EDV Vault*, and so on.
 
 Collections do not contain other collections (this specification adopts a
 flat collection structure).
@@ -1401,8 +1408,8 @@ Collection properties (user-writable):
   the server MUST throw an error.
   See section [[[#backends]]] for more details.
 * `encryption` (optional) - A non-secret marker declaring that this collection's
-  Resources are client-side encrypted, and naming the scheme. An object with a
-  required string `scheme` property (e.g. `{ "scheme": "edv" }` for the
+  Resources are client-side encrypted, and naming the scheme. The value is an
+  object with a required string `scheme` property (e.g. `{ "scheme": "edv" }` for the
   EDV-over-WAS scheme); absent means the collection is plaintext. The server
   MUST NOT interpret the marker beyond validating its shape -- it never holds key
   material and stores the marker opaquely. Its purpose is discovery: any
@@ -2167,9 +2174,7 @@ User-writable properties:
   below. A Metadata object with no user-writable properties set MAY omit
   `custom` or report it as `{}`.
   * `name` (optional) - A human-readable name for the Resource. This is the
-    same `name` property defined in the [[[#resource-data-model]]] and
-    returned by the [[[#list-collection-operation]]]; updating it here
-    updates the name shown in Collection listings.
+    same `name` property defined in the [[[#resource-data-model]]].
   * `tags` (optional) - A JSON object of application-defined annotations.
     Keys are strings chosen by the application; values SHOULD be strings, so
     that tags stay cheap to index and filter on. Applications that need
@@ -2188,7 +2193,7 @@ validates the `custom` envelope structurally on write (rejecting a plaintext
 `custom` with an [=encryption-scheme-mismatch=]) and never decrypts it; a client
 holding the keys decrypts `custom` back to `{ name, tags, ... }` after reading.
 Because the server cannot read an encrypted `name`, [[[#list-collection-operation]]]
-summaries for an encrypted Collection carry no `name` (see there).
+summaries for an encrypted Collection carry no `name`.
 
 A Resource's Metadata object is created and deleted together with the
 Resource itself: it comes into existence (with only server-managed
@@ -2324,8 +2329,8 @@ resources and extension points:
 
 * <dfn data-lt="policy relation" id="policy-rel"><code>policy</code> relation</dfn>
   (`https://wallet.storage/spec#policy`) - A link to the
-  `/space/{space_id}/policy` resource, which contains a set of links to access control
-  policy documents.
+  `/space/{space_id}/policy` resource, which contains a set of links to access
+  control policy documents.
 * <dfn id="backends-available">`backends-available`</dfn>
   (`https://wallet.storage/spec#backends-available`) - A link to the
   `/space/{space_id}/backends` "Backends Available" resource.
@@ -2445,8 +2450,10 @@ This section defines an OPTIONAL extension. A server MAY skip pluggable backends
 entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
 </div>
 
-Backends are an **optional** infrastructure concern that is orthogonal to the
+Backends are an optional infrastructure concern that is orthogonal to the
 hierarchical Spaces Repository > Space > Collection > Resource storage model.
+They exist to serve advanced use cases that need fine-grained control over
+storage configurations.
 
 Available backends are registered on the Space level, as a combination of
 server-side configuration and client-side "Bring Your Own Storage" registration.
@@ -2457,18 +2464,16 @@ PostgreSQL database backend. And on the client side, a user might register an
 external storage provider by connecting to their Dropbox account.
 
 When a Collection is created, the client can optionally specify the preferred
-backend for that Collection. If no preferred backend is specified, one is assigned
-by the server (usually the `default` backend).
+backend for that Collection. If no preferred backend is specified, one is
+assigned by the server (usually the `default` backend).
 
-Backends are an **optional system** that exists to serve advanced use cases that
-need fine-grained control over storage configurations.
 An implementer or client of a given server can omit the `backend` property when
 creating a Collection. By default, if not specified, all Collections are
 assigned the `default` backend.
 
 ### Backend Data Model {#backend-data-model}
 
-A Backend description object advertises a backend's identity and capabilities,
+A Backend description object advertises a backend's identity and features
 so that clients can select a suitable backend for each Collection (and so that
 storage management UIs can present meaningful choices to users).
 
@@ -2493,10 +2498,10 @@ Backend description properties:
 * `persistence` (optional) - Either `durable` (the engine stores data on
   persistent media, e.g. disk, and it survives a restart) or `volatile` (the
   engine stores data in memory, e.g. a RAM-backed cache tier, and data may not
-  survive a restart). Defaults to `durable`. Note that this is a _technical_ property of the storage engine,
-  deliberately distinct from any _administrative_ data-retention rules (see the
-  editor's note on lifecycle configuration below).
-* `features` (optional) - An array of capability tokens advertising optional
+  survive a restart). Defaults to `durable`. Note that this is a _technical_
+  property of the storage engine, deliberately distinct from any _administrative_
+  data-retention rules (see the editor's note on lifecycle configuration below).
+* `features` (optional) - An array of feature tokens advertising optional
   _server affordances_ the backend provides beyond the baseline read/write API,
   so that clients can gate behavior on what the backend actually does. The
   vocabulary is open and additive: a client MUST ignore tokens it does not
@@ -2511,16 +2516,16 @@ Backend description properties:
     `query` endpoint (see [[[#query-profile-registry]]]).
   - `chunked-streams` - the backend supports chunk addressing for large blobs.
 
-  Each token names something the **server** must actively do. Note that
-  client-side encryption is deliberately **not** a backend feature: an encrypted
-  document is opaque client-encrypted JSON that any document-capable backend
-  stores faithfully with no server cooperation, and whether a given Collection
-  is encrypted varies _per Collection_ on the very same backend. Encryption is
-  therefore a property of a Collection's data (signaled at the Collection level
-  and held in the client's keys), not a capability of the backend. Concretely,
-  this signal is the Collection's optional `encryption` marker (see
-  [[[#collection-data-model]]]): a non-secret declaration any authorized reader
-  discovers from the Collection Description, while the keys stay in the client.
+Each token names something the **server** must actively do. Note that
+client-side encryption is deliberately **not** a backend feature: an encrypted
+document is opaque client-encrypted JSON that any document-capable backend
+stores faithfully with no server cooperation, and whether a given Collection
+is encrypted varies _per Collection_ on the very same backend. Encryption is
+therefore a property of a Collection's data (signaled at the Collection level
+and held in the client's keys), not a capability of the backend. Concretely,
+this signal is the Collection's optional `encryption` marker (see
+[[[#collection-data-model]]]): a non-secret declaration any authorized reader
+discovers from the Collection Description, while the keys stay in the client.
 
 A backend that advertises `conditional-writes` takes on the server-side half of
 the client contract in [[[#conditional-requests]]]. It MAY derive the `ETag`
@@ -2636,7 +2641,7 @@ This section defines an OPTIONAL extension. A server MAY omit quota reporting an
 enforcement entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
 </div>
 
-[=Quota=] reporting and enforcement are **optional**, and support is
+[=Quota=] reporting and enforcement are optional, and support is
 backend-dependent. The quota API serves two distinct consumers:
 
 * The **hot path**: applications checking whether they have room to write,
@@ -2776,7 +2781,7 @@ in [[[#paginated-list-responses]]].
 The list operations -- [[[#list-spaces-operation]]], [[[#list-all-collections-operation]]],
 and [[[#list-collection-operation]]] -- return a collection of items in the
 common envelope (`url`, `totalItems`, `items`). A Space or Collection may hold
-more items than are practical to return in a single response, so servers MAY
+more items than is practical to return in a single response, so servers MAY
 paginate these responses, returning one page of items at a time. Pagination
 is OPTIONAL: a server that returns every item in a single response (as the
 examples in those sections show) is conformant, and a client MUST be prepared
@@ -2794,7 +2799,7 @@ ordering that is deterministic and in which no two items compare equal. The
 default order is ascending by item `id` (which is unique within its parent, see
 [[[#identifiers]]]). A server MAY offer additional orderings, but every order it
 supports for pagination MUST be stable and total -- if the primary sort key is
-not unique (for example a timestamp), the server MUST break ties on a unique key
+not unique (for example, a timestamp), the server MUST break ties on a unique key
 (such as `id`) so that the combined order is total. This stable order is what a
 cursor seeks within; an unstable order cannot be paginated correctly.
 
@@ -2839,12 +2844,12 @@ items may follow:
 A client consumes a multi-page list by following `next` from each response until
 a response omits it. A server SHOULD ensure that an item present throughout the
 traversal appears exactly once across the pages; an item added or removed
-concurrently with the traversal MAY or MAY NOT appear. (Snapshot consistency --
-a paginated traversal observing a single point in time -- is permitted but not
-required; a server MAY encode a snapshot identifier into the cursor to provide
-it.)
+concurrently with the traversal MAY or MAY NOT appear. Snapshot consistency
+(a paginated traversal observing a single point in time) is permitted but not
+required. A server MAY encode a snapshot identifier into the cursor to provide
+such consistency.
 
-A `cursor` that is malformed, or that a server can no longer honor (for example
+A `cursor` that is malformed, or that a server can no longer honor (for example,
 an expired snapshot), is rejected with an [=invalid-cursor=] (`400`) error. As
 with other request-validation failures, a server MUST verify the caller's
 authorization for the target before validating the cursor, so the error is
@@ -2938,7 +2943,7 @@ A Collection's optional `encryption` marker (see [[[#collection-data-model]]])
 names a client-side encryption `scheme`. This registry maps each `scheme` token
 to the wire format the server can expect for Resources in such a Collection, so
 that a [=server=] can hold the [=collection=]'s fail-closed guarantee
-*structurally* -- by validating the shape of what is written -- rather than
+*structurally*, by validating the shape of what is written, rather than
 relying on every client to encrypt correctly. The server never holds key
 material and never decrypts; it validates only the non-secret envelope
 structure, so this enforcement neither requires nor weakens confidentiality.
@@ -2981,14 +2986,13 @@ nothing about the Collection.
 
 ### Accepting a marker only when it can be enforced
 
-When a Collection create or update declares an `encryption` marker (see
+When a Collection create or update operation declares an `encryption` marker (see
 [[[#update-or-create-by-id-collection-operation]]]), a server SHOULD reject a
-`scheme` it does not recognize -- one absent from its supported subset of this
-registry -- with an [=unsupported-encryption-scheme=] error, rather than storing
-a marker it cannot enforce. This ensures that every marker a server accepts is
-one it validates on write: "this Collection is marked encrypted" then
-structurally implies "plaintext writes to it are rejected here," closing the gap
-that a silently-unenforced marker would reopen.
+`scheme` it does not recognize with an [=unsupported-encryption-scheme=] error,
+rather than storing a marker it cannot enforce. This ensures that every marker
+a server accepts is one it validates on write: "this Collection is marked
+encrypted" then structurally implies "plaintext writes to it are rejected here,"
+closing the gap that a silently unenforced marker would reopen.
 
 A server MAY instead choose to store markers for schemes it does not enforce
 (treating the marker as fully opaque, per [[[#collection-data-model]]]), but
@@ -3000,7 +3004,7 @@ guarantee for those Collections, leaving the guarantee entirely to clients.
 <div class="informative">
 
 A server MAY implement the `edv` envelope profile with a JSON Schema equivalent
-to the following sketch. The outer object MUST carry a `jwe` member; only the
+to the following. The outer object MUST carry a `jwe` member; only the
 `jwe`'s structural members are checked; their values are opaque ciphertext and
 are not interpreted. A plaintext object under `application/json` (one with no
 valid `jwe`) fails this profile and is rejected with an
@@ -3055,7 +3059,7 @@ This appendix is normative.
 <div class="note">
 This registry defines values used by an OPTIONAL feature (the query endpoint): a
 server MAY expose no query endpoint and remain conformant; see
-[[[#scope-and-conformance-profiles]]]. Optionality is orthogonal to normativity --
+[[[#scope-and-conformance-profiles]]]. Optionality is orthogonal to normativity:
 a server that does serve queries MUST follow the request and response shapes
 catalogued here.
 </div>
@@ -3069,9 +3073,9 @@ the request and response wire shape of that dialect.
 The request body is an `application/json` object with a REQUIRED `profile` string
 member. All other members are profile-specific. A [=server=] that recognizes the
 `profile` answers with `200 OK` on success and a profile-specific response body.
-A server that does not serve a given `profile` -- whether because the server does
+A server that does not serve a given `profile`, whether because the server does
 not implement it at all, or because the Collection's [=backend=] lacks the
-capability (see [[[#backend-data-model]]]) -- MUST respond with an
+capability (see [[[#backend-data-model]]]), MUST respond with an
 [=unsupported-operation=] (`501`) error.
 
 The `profile` vocabulary is open and additive, mirroring the [=backend=]
@@ -3082,15 +3086,15 @@ treat a `profile` it does not recognize the same as one it does not serve, with
 
 **Authorization.** The query endpoint requires read authorization (a capability
 or a [=policy=] grant, as for any read); the invoked [=action=] is [=POST=]. The
-capability's [=invocationTarget=] is the bare `/query` URL: every query parameter
+capability's [=invocationTarget=] is the bare `/query` URL. Every query parameter
 travels in the request body, which is signed and covered by the request `Digest`
-(see [[[#request-body-integrity-digest-header]]]), so no query-string attenuation is involved
-and a capability that authorizes the `/query` target authorizes any query body it
-signs. As with every other operation, a server MUST verify authorization before
-validating the request body. An under-authorized caller therefore receives the
-privacy-preserving [=not-found=] (`404`, see [[[#error-handling]]]) and never
-learns whether its query body was well-formed, nor whether the target Collection
-exists.
+(see [[[#request-body-integrity-digest-header]]]), so no query-string
+attenuation is involved, and a capability that authorizes the `/query` target
+authorizes any query body it signs. As with every other operation, a server MUST
+verify authorization before validating the request body. An under-authorized
+caller therefore receives the privacy-preserving [=not-found=] (`404`, see
+[[[#error-handling]]]) and never learns whether its query body was well-formed,
+nor whether the target Collection exists.
 
 | `profile`        | Summary                                                     | Defining subsection                 |
 |------------------|-------------------------------------------------------------|-------------------------------------|
