@@ -52,7 +52,7 @@ This subsection is non-normative.
   group).
 </div>
 
-### Reading This Document
+### Reading This Document {#reading-this-document}
 
 <div class="note">
 This subsection is non-normative. It collects conventions that the rest of the
@@ -269,6 +269,14 @@ pre-configured and controlled by the server.
 * `GET /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#read-resource-metadata-operation]]]
 * `PUT /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#update-resource-metadata-operation]]]
 
+**Chunked Resource Endpoints** (see [[[#chunked-resources]]]; available only on a
+backend advertising `chunked-streams`):
+
+* `PUT|GET|HEAD|DELETE /space/{space_id}/{collection_id}/{resource_id}/chunks/{index}`
+  -- store, read, head, delete a single chunk.
+* `GET /space/{space_id}/{collection_id}/{resource_id}/chunks/` -- list a
+  Resource's chunks.
+
 **Policy Related Endpoints:**
 
 Policy overrides are hierarchical and inherited. A policy set for the entire
@@ -327,6 +335,14 @@ Required if Space endpoints or Collection endpoints are supported.
     Collection names one via its <code>backend</code> property, and is assigned
     the <code>default</code> backend when it does not. See section
     [[[#backends]]].</dd>
+
+  <dt><dfn data-lt="chunks">chunk</dfn></dt>
+  <dd>One opaque byte sequence of a chunked Resource, addressed by a
+    non-negative integer index under the Resource's reserved <code>chunks</code>
+    sub-path. The [=server=] stores a chunk exactly like a binary Resource
+    representation and never parses it; framing and reassembly are the client's
+    concern. Available only on a [=backend=] advertising the
+    <code>chunked-streams</code> feature. See section [[[#chunked-resources]]].</dd>
 
   <dt><dfn data-lt="collections">collection</dfn></dt>
   <dd>A namespace and configuration container for resources. Conceptually maps
@@ -413,7 +429,7 @@ identifier formats include:
   (for example, a user hosting a blog in their space might want meaningful collection
   and resource IDs such as `/posts/2020-01-01-hello-world`).
 
-## Authorization
+## Authorization {#authorization}
 
 The ability to do cross-domain, operator-independent, standardized cloud storage
 operations requires an authorization system that is:
@@ -1409,8 +1425,12 @@ Collection properties (user-writable):
   See section [[[#backends]]] for more details.
 * `encryption` (optional) - A non-secret marker declaring that this collection's
   Resources are client-side encrypted, and naming the scheme. The value is an
-  object with a required string `scheme` property (e.g. `{ "scheme": "edv" }` for the
-  EDV-over-WAS scheme); absent means the collection is plaintext. The server
+  object with required string `scheme` and `version` properties (e.g.
+  `{ "scheme": "edv", "version": "0.1" }` for the EDV-over-WAS scheme); absent
+  means the collection is plaintext. The `version` names the version of the
+  scheme's wire format as registered in the [[[#encryption-scheme-registry]]],
+  so a scheme's envelope profile can evolve without ambiguity about which shape
+  a given collection stores. The server
   MUST NOT interpret the marker beyond validating its shape -- it never holds key
   material and stores the marker opaquely. Its purpose is discovery: any
   authorized reader (including a delegated consumer that did not create the
@@ -1418,12 +1438,12 @@ Collection properties (user-writable):
   encrypted, and decrypts with its own keys. The marker is **set-once**: a server
   MUST allow declaring it on a collection that lacks one (e.g. migrating a
   pre-existing collection), but MUST reject (with an `encryption-immutable` error)
-  any attempt to change its `scheme` or clear it on an existing collection, since
-  that would corrupt the already-stored encrypted Resources. See section
-  [[[#backends]]] (client-side encryption note) for the rationale.
-  A server that recognizes the declared `scheme` enforces it structurally on
-  write -- rejecting any non-envelope body so plaintext can never be stored in
-  an encrypted Collection; see [[[#encryption-scheme-registry]]].
+  any attempt to change its `scheme` or `version`, or clear it, on an existing
+  collection, since that would corrupt the already-stored encrypted Resources.
+  See section [[[#backends]]] (client-side encryption note) for the rationale.
+  A server that recognizes the declared `scheme` and `version` enforces them
+  structurally on write -- rejecting any non-envelope body so plaintext can never
+  be stored in an encrypted Collection; see [[[#encryption-scheme-registry]]].
 
 Collection properties automatically added by the server:
 
@@ -2308,6 +2328,298 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
+## Chunked Resources {#chunked-resources}
+
+<div class="note">
+Chunked Resources are an OPTIONAL feature, available only against a [=backend=]
+that advertises the `chunked-streams` token in its Backend description (see
+[[[#backend-data-model]]]). A server whose backends do not advertise
+`chunked-streams` MAY omit these endpoints entirely and remain conformant; see
+[[[#scope-and-conformance-profiles]]].
+</div>
+
+A Resource MAY carry an ordered set of **chunks**: opaque byte sequences, each
+addressed by a non-negative integer index under the Resource's reserved `chunks`
+sub-path. Chunks let a client store a representation larger than a single request
+(or a single encryption envelope) can carry, without the server ever parsing or
+reassembling anything. The server treats each chunk exactly like a binary
+Resource representation -- stored bytes plus a content type (see
+[[[#content-types-and-representations]]]) -- and framing and reassembly
+(including any client-side encryption) are entirely the client's concern. The
+server never concatenates a Resource's chunks, and reading the parent Resource's
+own content (see [[[#read-resource-operation]]]) returns only that content, not
+its chunks; the chunk set is discovered and read through the endpoints below.
+
+Chunks are the substrate the [[[#edv-over-was-profile-v0-1]]] uses to store a
+large or streamed encrypted document, but the mechanism itself is
+scheme-agnostic: the bytes of a chunk are opaque to the server whether they are
+plaintext, ciphertext, or anything else.
+
+### The chunk address {#the-chunk-address}
+
+A single chunk is addressed in **member form** (no trailing slash), and a
+Resource's chunk set is listed in **container form** (trailing slash), following
+the trailing-slash convention in [[[#reading-this-document]]]:
+
+* `PUT` / `GET` / `HEAD` / `DELETE`
+  `/space/{space_id}/{collection_id}/{resource_id}/chunks/{index}` -- store,
+  read, head, and delete a single chunk.
+* `GET` `/space/{space_id}/{collection_id}/{resource_id}/chunks/` -- list the
+  Resource's chunks.
+
+As elsewhere, a request to the non-canonical variant of either form is
+redirected to the canonical one with `308 Permanent Redirect` (which, unlike a
+`302`, requires the client to replay the same method and body): a `GET` of the
+member-form `chunks` container without its trailing slash redirects to the
+trailing-slash form, and a member `PUT` (or other member method) carrying a
+trailing slash redirects to the no-slash form.
+
+The `{index}` path segment MUST be a canonical non-negative decimal integer: a
+single `0`, or a digit run with no leading zero, no sign, and no non-digit
+characters (so `0`, `1`, `42` are valid; `01`, `+1`, `-1`, `1e3`, `1.0` are
+not). A server MUST reject a non-canonical index with an [=invalid-id=] (`400`)
+error. Requiring a canonical spelling keeps each chunk addressable at exactly
+one URL.
+
+### Store Chunk Operation {#store-chunk-operation}
+
+#### (HTTP API) PUT `/space/{space_id}/{collection_id}/{resource_id}/chunks/{index}`
+
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must
+    either: be signed by the space's [=controller=], or invoke a delegated
+    capability that allows the [=PUT=] action, whose `invocationTarget` is the
+    chunk's own full URL (see [[[#chunk-authorization]]]).
+* Upserts the chunk at `{index}`: a write replaces any chunk already stored
+  there. Indexes need not be written contiguously or in order.
+* Returns a `204` success response carrying the chunk's `ETag`.
+
+The request body is raw bytes under any `Content-Type`. The server MUST NOT
+parse or validate a chunk body. This holds even for a Collection that declares
+an `encryption` marker (see [[[#encryption-scheme-registry]]]): the
+scheme's envelope validation applies to a Resource's own content, **not** to its
+chunks, because the chunks of an encrypted stream are ciphertext fragments, not
+envelope documents. The parent Resource MUST already exist; a `PUT` to a chunk
+of a Resource that does not exist is rejected with [=not-found=] (`404`), so a
+chunk can never be orphaned. The `Digest` request-body-integrity requirement
+(see [[[#request-body-integrity-digest-header]]]) applies per request -- that
+is, per chunk. The backend's `maxUploadBytes` cap and quota accounting apply to
+a chunk write exactly as they do to a Resource write (see [[[#quotas]]]).
+
+Each chunk carries its own strong `ETag` validator, independent of the parent
+Resource's and of the other chunks'. The `If-Match` / `If-None-Match` write
+preconditions of [[[#conditional-requests]]] apply per chunk, against that
+validator, on a backend that advertises `conditional-writes`.
+
+Example request (storing chunk `0` as raw bytes):
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/backups/bigfile/chunks/0 HTTP/1.1
+Host: example.com
+Content-Type: application/octet-stream
+Digest: mh=uEiCPO-qYr-z0GYV5F75-N1l8Rhjv4xIkKZsnbTZeZ7emSA
+Authorization: ...
+
+...raw chunk bytes...
+```
+
+Example success response:
+
+```http
+HTTP/1.1 204 No Content
+ETag: "1"
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=invalid-id=] (400) -- the `{index}` segment is not a canonical non-negative
+  decimal integer (see [[[#the-chunk-address]]]).
+* [=not-found=] (404) -- the parent Resource (or its enclosing Space or
+  Collection) does not exist, or the caller has missing or insufficient
+  authorization; per [[[#error-handling]]] an under-authorized request is
+  indistinguishable from a missing target.
+* [=payload-too-large=] (413) -- the chunk exceeds the backend's `maxUploadBytes`
+  constraint (see [[[#quotas]]]).
+* [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
+  remaining (see [[[#quotas]]]).
+* [=precondition-failed=] (412) -- a conditional write's `If-Match` /
+  `If-None-Match` precondition evaluated false against the chunk's own `ETag`, on
+  a backend that advertises `conditional-writes` (see
+  [[[#conditional-requests]]]).
+
+### Read Chunk Operation {#read-chunk-operation}
+
+#### (HTTP API) GET `/space/{space_id}/{collection_id}/{resource_id}/chunks/{index}`
+
+A read returns the chunk's stored bytes, verbatim, with the content type they
+were stored under, and the chunk's `ETag`. A `HEAD` on the same address returns
+those same headers -- the response `Content-Type` and `Content-Length` are read
+from the chunk's stored metadata, so the byte stream is never opened -- with no
+body, mirroring the Resource `HEAD` variant in
+[[[#content-types-and-representations]]]. Authorization for a chunk read (and
+`HEAD`) is capability-or-policy and resolves at the parent Resource's access
+level (see [[[#chunk-authorization]]]).
+
+Example request:
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/backups/bigfile/chunks/0 HTTP/1.1
+Host: example.com
+Authorization: ...
+```
+
+Example success response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+ETag: "1"
+
+...raw chunk bytes...
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=invalid-id=] (400) -- the `{index}` segment is not canonical (see
+  [[[#the-chunk-address]]]).
+* [=not-found=] (404) -- no chunk is stored at `{index}` (the parent Resource may
+  exist but have no chunk there), or the caller has missing or insufficient
+  authorization; per [[[#error-handling]]] the two are indistinguishable.
+
+### Delete Chunk Operation {#delete-chunk-operation}
+
+#### (HTTP API) DELETE `/space/{space_id}/{collection_id}/{resource_id}/chunks/{index}`
+
+* Requires appropriate authorization on the same terms as the Store Chunk
+  operation (capability-only against the chunk's own URL; see
+  [[[#chunk-authorization]]]).
+* Removes the chunk at `{index}` and returns a `204` success response.
+* Accepts the `If-Match` precondition of [[[#conditional-requests]]] against the
+  chunk's own `ETag` on a `conditional-writes` backend.
+
+Unlike the [[[#delete-resource-operation]]], deleting a chunk is **not**
+idempotent: a `DELETE` of an absent chunk is rejected with [=not-found=]
+(`404`), not a `204`. This is deliberate -- a client reassembling a chunked
+representation must be able to distinguish a chunk that is *gone* from one that
+was *never written*, which an idempotent delete would erase.
+
+Example request:
+
+```http
+DELETE /space/81246131-69a4-45ab-9bff-9c946b59cf2e/backups/bigfile/chunks/0 HTTP/1.1
+Host: example.com
+Authorization: ...
+```
+
+Example success response:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=invalid-id=] (400) -- the `{index}` segment is not canonical.
+* [=not-found=] (404) -- no chunk is stored at `{index}` (see above), or the
+  caller has missing or insufficient authorization; per [[[#error-handling]]] the
+  two are indistinguishable.
+* [=precondition-failed=] (412) -- an `If-Match` precondition evaluated false
+  against the chunk's `ETag`, on a `conditional-writes` backend.
+
+### List Chunks Operation {#list-chunks-operation}
+
+#### (HTTP API) GET `/space/{space_id}/{collection_id}/{resource_id}/chunks/`
+
+The container form lists a Resource's stored chunks. Because the server never
+reassembles a chunked Resource, this listing is the discovery mechanism: a
+reader learns the chunk set here -- how many chunks exist and each one's index,
+size, and content type -- and then reads indexes `0` through `count - 1` itself.
+Authorization is capability-or-policy against the `chunks/` container URL,
+resolving at the parent Resource's access level (see [[[#chunk-authorization]]]).
+
+The response is an `application/json` object:
+
+* `resourceId` -- the parent Resource's id.
+* `count` -- the number of stored chunks.
+* `chunks` -- an array, in ascending `index` order, of one entry per stored
+  chunk:
+  * `index` -- the chunk's non-negative integer index.
+  * `size` -- the length in bytes of the stored chunk.
+  * `contentType` -- the content type the chunk was stored under.
+  * `version` (optional) -- the chunk's monotonic version, the integer from
+    which its strong `ETag` is derived (the `ETag` is this integer, quoted).
+    Present only on a backend that advertises `conditional-writes` and therefore
+    tracks a per-chunk version; absent otherwise.
+
+The parent Resource MUST exist for its chunk container to: a listing under an
+absent Resource is a [=not-found=] (`404`). A Resource that exists but has no
+chunks lists as `count` `0` with an empty `chunks` array.
+
+Example request:
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/backups/bigfile/chunks/ HTTP/1.1
+Host: example.com
+Accept: application/json
+Authorization: ...
+```
+
+Example success response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "resourceId": "bigfile",
+  "count": 3,
+  "chunks": [
+    { "index": 0, "size": 1048576, "contentType": "application/octet-stream", "version": 1 },
+    { "index": 1, "size": 1048576, "contentType": "application/octet-stream", "version": 1 },
+    { "index": 2, "size": 524288, "contentType": "application/octet-stream", "version": 1 }
+  ]
+}
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the parent Resource does not exist, or the caller has
+  missing or insufficient authorization; per [[[#error-handling]]] the two are
+  indistinguishable.
+
+### Chunk lifecycle {#chunk-lifecycle}
+
+A Resource's chunks are bound to the Resource. Deleting the parent Resource (see
+[[[#delete-resource-operation]]]) MUST cascade-delete all of its chunks; there is
+no way to leave chunks behind a deleted Resource. A Resource's chunks are carried
+alongside its content by a Space export and restored by the matching import (the
+`export` reserved segment; see [[[#reserved-path-segment-registry]]]).
+
+Chunk writes and deletes are invisible to the `changes` query profile (see
+[[[#query-profile-changes]]]): storing or deleting a chunk affects only the
+chunk's own `ETag` validator and MUST NOT advance the parent Resource's
+position in the feed, and the feed enumerates Resources only, never chunks. A
+client replicating a chunked Resource MUST therefore finish the write by
+updating the parent Resource's own content (its manifest; see
+[[[#update-or-create-by-id-resource-operation]]]) after its chunks are stored:
+that final Resource write is what surfaces the change to replicating readers.
+A client that mutates a Resource purely through its chunks never appears on
+the feed.
+
+### Chunk authorization {#chunk-authorization}
+
+Chunk operations use the same authorization model as every other operation in
+this specification (see [[[#authorization]]]): writes (`PUT`, `DELETE`) are
+capability-only, while reads (`GET`, `HEAD`, and the container listing) are
+capability-or-policy. A chunk write's capability `invocationTarget` MUST be the
+chunk's own full URL (member form), and the listing's the `chunks/` container
+URL -- the same exact-match target rule that governs every WAS URL (see
+[=target=]). For a read, the governing access-control [=policy=] is the parent
+Resource's: a chunk exposes a fragment of the same content the Resource holds, so
+whoever may read the Resource may read its chunks, and the maximum-privacy
+[=not-found=] rule (see [[[#error-handling]]]) applies to a chunk exactly as to
+the Resource.
+
 ## Linksets {#linksets}
 
 <div class="note">
@@ -2514,7 +2826,8 @@ Backend description properties:
     endpoint (see [[[#query-profile-registry]]]).
   - `blinded-index-query` - the backend serves the `blinded-index` profile of the
     `query` endpoint (see [[[#query-profile-registry]]]).
-  - `chunked-streams` - the backend supports chunk addressing for large blobs.
+  - `chunked-streams` - the backend supports chunk addressing for large blobs
+    (see [[[#chunked-resources]]]).
 
 Each token names something the **server** must actively do. Note that
 client-side encryption is deliberately **not** a backend feature: an encrypted
@@ -2921,7 +3234,13 @@ level operations.
 
 | Reserved API Endpoint                                  | Reserved segment | Purpose                                              |
 |--------------------------------------------------------|------------------|------------------------------------------------------|
-| `/space/{space_id}/{collection_id}/{resource_id}/meta` | `meta`           | Resource metadata (server-managed and user-writable) |
+| `/space/{space_id}/{collection_id}/{resource_id}/meta`   | `meta`           | Resource metadata (server-managed and user-writable) |
+| `/space/{space_id}/{collection_id}/{resource_id}/chunks` | `chunks`         | Chunk addressing for a chunked Resource (see [[[#chunked-resources]]]) |
+
+Like the Collection-level reserved segments, these sit *below* the level whose
+ids they could collide with -- they qualify a `{resource_id}`, so a Resource
+whose own id is `meta` or `chunks` is unaffected -- and so they impose no
+constraint on Collection or Resource id choice.
 
 </section>
 
@@ -2940,24 +3259,25 @@ catalogued here.
 </div>
 
 A Collection's optional `encryption` marker (see [[[#collection-data-model]]])
-names a client-side encryption `scheme`. This registry maps each `scheme` token
-to the wire format the server can expect for Resources in such a Collection, so
+names a client-side encryption `scheme` and a `version` of that scheme's wire
+format. This registry maps each `scheme`/`version` pair to the wire format the
+server can expect for Resources in such a Collection, so
 that a [=server=] can hold the [=collection=]'s fail-closed guarantee
 *structurally*, by validating the shape of what is written, rather than
 relying on every client to encrypt correctly. The server never holds key
 material and never decrypts; it validates only the non-secret envelope
 structure, so this enforcement neither requires nor weakens confidentiality.
 
-| `scheme` | Media type         | Envelope profile                                                                                                                                                                                                                                                                                                                          | Reference                                                      |
-|----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
-| `edv`    | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
+| `scheme` | `version` | Media type         | Envelope profile                                                                                                                                                                                                                                                                                                                          | Reference                                                      |
+|----------|-----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| `edv`    | `0.1`     | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
 
 ### Server-side write validation
 
-A [=server=] that recognizes the `scheme` declared by a Collection's
-`encryption` marker MUST validate the body of every Resource content write
-([=POST=] or [=PUT=]) into that Collection against the scheme's envelope
-profile, and MUST reject a non-conforming body -- or a body sent under a
+A [=server=] that recognizes the `scheme`/`version` pair declared by a
+Collection's `encryption` marker MUST validate the body of every Resource
+content write ([=POST=] or [=PUT=]) into that Collection against that pair's
+envelope profile, and MUST reject a non-conforming body -- or a body sent under a
 `Content-Type` other than the scheme's registered media type -- with an
 [=encryption-scheme-mismatch=] error.
 
@@ -2988,8 +3308,9 @@ nothing about the Collection.
 
 When a Collection create or update operation declares an `encryption` marker (see
 [[[#update-or-create-by-id-collection-operation]]]), a server SHOULD reject a
-`scheme` it does not recognize with an [=unsupported-encryption-scheme=] error,
-rather than storing a marker it cannot enforce. This ensures that every marker
+`scheme` -- or a `version` of a recognized scheme -- that it does not recognize
+with an [=unsupported-encryption-scheme=] error, rather than storing a marker it
+cannot enforce. This ensures that every marker
 a server accepts is one it validates on write: "this Collection is marked
 encrypted" then structurally implies "plaintext writes to it are rejected here,"
 closing the gap that a silently unenforced marker would reopen.
@@ -3003,7 +3324,7 @@ guarantee for those Collections, leaving the guarantee entirely to clients.
 
 <div class="informative">
 
-A server MAY implement the `edv` envelope profile with a JSON Schema equivalent
+A server MAY implement the `edv` `0.1` envelope profile with a JSON Schema equivalent
 to the following. The outer object MUST carry a `jwe` member; only the
 `jwe`'s structural members are checked; their values are opaque ciphertext and
 are not interpreted. A plaintext object under `application/json` (one with no
@@ -3353,6 +3674,169 @@ claim the same triple.
 
 <section class="appendix">
 
+## EDV-over-WAS Profile v0.1 {#edv-over-was-profile-v0-1}
+
+This appendix is normative for clients that claim conformance to it.
+
+<div class="note">
+This profile is a **client-side layout convention**: it constrains how a client
+maps [Encrypted Data Vault](https://identity.foundation/edv-spec/) (EDV)
+operations onto ordinary WAS operations. A
+conforming WAS server needs nothing beyond the features it already advertises,
+and never learns that it is hosting an EDV. Its normative requirements therefore
+bind the *client*; a server's obligations are only the ones it already has for
+the underlying WAS operations.
+</div>
+
+### Purpose {#edv-over-was-purpose}
+
+An Encrypted Data Vault stores JWE-encrypted documents that its server can query
+by blinded index but never decrypt. A client can realize all of that behavior on
+a plain WAS server, because a WAS Resource is an opaque byte store and
+WAS already carries the pieces an EDV needs. This profile fixes the mapping so
+that independent clients interoperate over the same encrypted Collection:
+
+| EDV concept           | WAS realization                                                                    |
+|-----------------------|------------------------------------------------------------------------------------|
+| Vault                 | [=collection=]                                                                     |
+| Document              | Resource (the EDV envelope stored as its content)                                  |
+| Document `sequence`   | conditional writes (`If-Match` / `If-None-Match`; see [[[#conditional-requests]]]) |
+| Blinded index + query | the `blinded-index` query profile (see [[[#query-profile-blinded-index]]])         |
+| Stream chunks         | chunk addressing (see [[[#chunked-resources]]])                                    |
+
+Encryption itself is out of scope of the server entirely: the client holds all
+keys and performs all encryption, decryption, and index blinding, as required by
+[[[#stored-data-is-opaque-to-the-storage-provider]]]. The server enforces WAS
+authorization, maximum-privacy `404`s, and policies over the ciphertext
+unchanged; the encryption is defense in depth layered on top, not a replacement
+for the WAS authorization model.
+
+### The encryption marker {#edv-over-was-marker}
+
+A Collection realizing this profile declares the `encryption` marker
+`{ "scheme": "edv", "version": "0.1" }` in its Collection Description (see
+[[[#collection-data-model]]]). The `edv` scheme's envelope wire format and the
+server's structural fail-closed validation of it are defined by the
+[[[#encryption-scheme-registry]]] and are not restated here. A server that
+recognizes the `edv` scheme thereby guarantees, without holding any key, that a
+plaintext write into the Collection is rejected -- so the profile inherits the
+registry's fail-closed property for free.
+
+Key management -- how the JWE's recipient keys are chosen, distributed, rotated,
+or organized into epochs for multi-recipient sharing -- is deliberately outside
+the scope of both this profile and this specification, exactly as it is for a
+native EDV: those keys and any epoch bookkeeping live in the client, and the JWE
+`recipients` structure the [[[#encryption-scheme-registry]]] describes is where
+multi-recipient encryption is carried. The server sees only opaque envelopes.
+
+### Document layout {#edv-over-was-document-layout}
+
+A client stores each EDV document as the EDV Encrypted Document envelope -- the
+JSON object `{ id, sequence, indexed?, jwe }` -- as the Resource's content, at
+the Resource id equal to the EDV document id. The envelope is the `edv` scheme's
+registered wire format (see [[[#encryption-scheme-registry]]]); a client SHOULD
+write it under the JWE JSON Serialization media type `application/jose+json`
+([[RFC7516]]) where the server registers a parser for it, and MAY fall back to
+`application/json`, which an unmodified WAS server accepts. The plaintext type of
+the resource, and any user-visible metadata, ride *inside* the JWE and are never
+server-visible; the server stores one opaque envelope regardless of what the
+decrypted document is.
+
+### Sequence mapping {#edv-over-was-sequence}
+
+EDV gives every document a monotonic `sequence` and enforces `previous + 1`
+atomically server-side. This profile maps that onto WAS conditional writes (see
+[[[#conditional-requests]]]):
+
+* A fresh insert is a `PUT` carrying `If-None-Match: *`, so a collision with an
+  existing document surfaces as [=precondition-failed=] (`412`) rather than a
+  silent overwrite.
+* An update pre-reads the stored envelope, advances `sequence` to `previous + 1`,
+  and writes it back with `If-Match` pinned to the `ETag` observed on that read,
+  so a concurrent writer's stale update is a `412` rather than a lost update.
+
+A client SHOULD use these preconditions only against a backend advertising
+`conditional-writes` (see [[[#backend-data-model]]]). Against a backend without
+it, the mapping degrades to advisory: the `sequence` is still carried in the
+envelope but is not enforced, and writes are last-writer-wins -- the floor the
+profile reaches on any conformant WAS server.
+
+### Chunked streams {#edv-over-was-chunked-streams}
+
+A large or streamed EDV document is stored as chunks, using WAS chunk addressing
+(see [[[#chunked-resources]]]) against a backend advertising `chunked-streams`:
+
+1. The client writes the document envelope **first**, as an ordinary Resource
+   (satisfying the [[[#store-chunk-operation]]] rule that the parent Resource must
+   exist before any of its chunks). The envelope carries `stream` metadata --
+   `{ sequence, chunks }`, where `chunks` is the total chunk count -- so a reader
+   can learn the extent of the stream from the document alone.
+2. For each chunk `i` in `0 .. chunks - 1`, the client serializes the EDV chunk
+   object `{ index, offset, sequence, jwe }` to JSON and `PUT`s it to chunk index
+   `i` under the `application/octet-stream` content type. The octet-stream type is
+   deliberate: it routes the chunk through the server's raw-binary write path,
+   which is bounded by the backend's `maxUploadBytes` (tens of MiB) rather than
+   the much smaller JSON body ceiling a full encrypted chunk would exceed. The
+   server stores the bytes verbatim and never parses them, so a reader decodes and
+   parses the chunk object back client-side.
+3. A reader fetches the document envelope, reads `stream.chunks`, fetches chunk
+   indexes `0 .. chunks - 1` (see [[[#read-chunk-operation]]]), and decrypts each
+   `jwe` client-side to reassemble the stream.
+
+<div class="note">
+**Security consideration (stream integrity).** The chunk framing above
+authenticates the *bytes* of each chunk (each `jwe` is an AEAD ciphertext) but
+does **not** authenticate a chunk's *position* in the stream or the stream's
+*total length*: the index, offset, and count are carried in plaintext framing and
+in the (individually authenticated but not cross-linked) chunk objects. A
+malicious server that reorders, drops, duplicates, or truncates chunks is
+therefore **not** reliably detectable by the client with this framing. A hardened
+framing -- a per-stream authenticated header, an index-bound AAD on each chunk,
+and an authenticated total length, in the manner of a Cryptomator-style file
+header -- closes this gap and is planned upstream in the EDV specification. When
+it lands, this profile will adopt it behind a versioned framing marker; until
+then, a deployment that does not trust its storage provider for availability and
+ordering integrity SHOULD treat streamed documents accordingly.
+</div>
+
+### Search and uniqueness {#edv-over-was-search}
+
+Content search over encrypted documents uses the `blinded-index` query profile
+(see [[[#query-profile-blinded-index]]]): a client attaches blinded (HMAC'd)
+`indexed` attributes to the envelope and queries them via
+`POST /space/{space_id}/{collection_id}/query`. Blinded-attribute uniqueness
+(`unique: true`) is enforced server-side by that profile (see
+[[[#query-profile-blinded-index]]], *Unique blinded attributes*). Both require a
+backend advertising the `blinded-index-query` feature; a client SHOULD gate their
+use on it.
+
+### What this profile does not provide {#edv-over-was-limits}
+
+Relative to a dedicated EDV server, this profile reaches full parity **only for
+the features whose backend affordances the target backend advertises**, and
+degrades to a client-side floor otherwise:
+
+* **Sequence-atomic writes** require `conditional-writes`. Without it, EDV's
+  `previous + 1` guarantee is advisory (last-writer-wins), as described in
+  [[[#edv-over-was-sequence]]].
+* **Server-side blinded-index query** and **`unique: true` enforcement** require
+  `blinded-index-query`. Without it, a client cannot query blinded attributes at
+  the server or rely on it to enforce uniqueness; it must fetch-and-filter
+  client-side (or, as the reference codec does, mint restrict-mode document ids
+  and keep all searchable metadata inside the envelope), and a uniqueness
+  constraint is at best a racy client-side read-then-write.
+* **Stream ordering / truncation integrity** is not authenticated by the current
+  chunk framing (see the security consideration in
+  [[[#edv-over-was-chunked-streams]]]).
+
+For a small single-writer Collection (for example, a credential wallet) the floor
+alone is fully usable; a large or multi-writer Collection wants a backend that
+advertises the affordances above.
+
+</section>
+
+<section class="appendix">
+
 ## Error Type Registry {#error-type-registry}
 
 This appendix is normative.
@@ -3383,9 +3867,9 @@ status code depending on the operation.
 | `https://wallet.storage/spec#invalid-authorization-header`  | <dfn id="invalid-authorization-header">invalid-authorization-header</dfn>   | 400            | An `Authorization`, `Capability-Invocation`, or `Digest` header is malformed, unparseable, or failed verification.                                                                                                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
-| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change or clear an existing `encryption` marker. The marker is set-once: declaring it on a Collection that lacks one is allowed, but changing its `scheme` (or clearing it) on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
+| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change or clear an existing `encryption` marker. The marker is set-once: declaring it on a Collection that lacks one is allowed, but changing its `scheme` or `version` (or clearing it) on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A Resource write into an encrypted Collection had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
-| `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
+| `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
 | `https://wallet.storage/spec#quota-exceeded`                | <dfn id="quota-exceeded">quota-exceeded</dfn>                               | 507            | A write was rejected because the target backend's storage quota is exhausted. See [[[#quotas]]].                                                                                                                                                                                                                                                                                                                 |
 | `https://wallet.storage/spec#payload-too-large`             | <dfn id="payload-too-large">payload-too-large</dfn>                         | 413            | An upload exceeds the target backend's `maxUploadBytes` constraint (see [[[#quotas]]]). Note that unlike [=quota-exceeded=], this rejection is per-request: smaller uploads may still succeed.                                                                                                                                                                                                                   |
@@ -3679,7 +4163,7 @@ primary use cases of this specification.
   after X amount of time" or "this is a one-time share and will expire after
   the first successful read request")
 
-### Stored data is opaque to the storage provider
+### Stored data is opaque to the storage provider {#stored-data-is-opaque-to-the-storage-provider}
 
 * The spec needs to support (though not require) end-to-end client side
   encryption of the space. For plausible deniability, this might need to include
