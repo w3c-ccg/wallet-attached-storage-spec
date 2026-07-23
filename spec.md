@@ -1324,6 +1324,19 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * Since Collection's `name` property is optional, default it to be the same
   value as `id` when `name` is missing. (The name is intended to drive UIs, so
   defaulting to `id` simplifies consuming client logic.)
+* Each listed item carries the Collection's `id`, `url`, and `name`. A server
+  MAY additionally surface a `public` member on each item: a boolean indicating
+  whether a `PublicCanRead` access control policy (see
+  [[[#access-control-policies]]]) is attached to that Collection. It is surfaced
+  inline so that a listing consumer need not issue one policy probe per item to
+  learn whether the Collection is publicly readable. A server that surfaces
+  `public` MUST include it on *every* item in the listing, expressing `false`
+  explicitly rather than omitting it, so that a client can distinguish "not
+  public" from "the server does not surface the flag". Consistent with the
+  fail-closed rule of the policy evaluation contract, a policy whose `type` the
+  server does not recognize MUST be reported as `"public": false`. When `public` is absent
+  from a listing, a client falls back to probing each Collection's policy (see
+  [[[#access-control-policies]]]).
 * MAY be paginated (see [[[#pagination]]])
 
 #### (HTTP API) GET `/space/{space_id}/collections/`
@@ -1350,12 +1363,14 @@ Content-type: application/json
     {
       "id": "example",
       "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/example",
-      "name": "Example Collection"
+      "name": "Example Collection",
+      "public": false
     },
     {
       "id": "73WakrfVbNJBaAmhQtEeDv",
       "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
-      "name": "73WakrfVbNJBaAmhQtEeDv"
+      "name": "73WakrfVbNJBaAmhQtEeDv",
+      "public": true
     }
   ]
 }
