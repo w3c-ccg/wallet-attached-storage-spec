@@ -1436,23 +1436,27 @@ Collection properties (user-writable):
   for the given space. If an unavailable (unsupported) backend is specified,
   the server MUST throw an error.
   See section [[[#backends]]] for more details.
-* `encryption` (optional) - A non-secret marker declaring that this collection's
+* `encryption` (optional) - A non-secret descriptor declaring that this collection's
   Resources are client-side encrypted, and naming the scheme. The value is an
-  object with a required string `scheme` property (e.g. `{ "scheme": "edv" }` for the
-  EDV-over-WAS scheme); absent means the collection is plaintext. The server
-  MUST NOT interpret the marker beyond validating its shape -- it never holds key
-  material and stores the marker opaquely. Its purpose is discovery: any
+  object with required string `scheme` and `version` properties (e.g.
+  `{ "scheme": "edv", "version": "0.1" }` for the EDV-over-WAS scheme); absent
+  means the collection is plaintext. The `version` names the version of the
+  scheme's wire format as registered in the [[[#encryption-scheme-registry]]],
+  so a scheme's envelope profile can evolve without ambiguity about which shape
+  a given collection stores. The server
+  MUST NOT interpret the descriptor beyond validating its shape -- it never holds key
+  material and stores the descriptor opaquely. Its purpose is discovery: any
   authorized reader (including a delegated consumer that did not create the
   collection) learns from the Collection Description that the collection is
-  encrypted, and decrypts with its own keys. The marker is **set-once**: a server
+  encrypted, and decrypts with its own keys. The descriptor is **set-once**: a server
   MUST allow declaring it on a collection that lacks one (e.g. migrating a
   pre-existing collection), but MUST reject (with an `encryption-immutable` error)
-  any attempt to change its `scheme` or clear it on an existing collection, since
-  that would corrupt the already-stored encrypted Resources. See section
-  [[[#backends]]] (client-side encryption note) for the rationale.
-  A server that recognizes the declared `scheme` enforces it structurally on
-  write -- rejecting any non-envelope body so plaintext can never be stored in
-  an encrypted Collection; see [[[#encryption-scheme-registry]]].
+  any attempt to change its `scheme` or `version`, or clear it, on an existing
+  collection, since that would corrupt the already-stored encrypted Resources.
+  See section [[[#backends]]] (client-side encryption note) for the rationale.
+  A server that recognizes the declared `scheme` and `version` enforces them
+  structurally on write -- rejecting any non-envelope body so plaintext can never
+  be stored in an encrypted Collection; see [[[#encryption-scheme-registry]]].
 
 Collection properties automatically added by the server:
 
@@ -1588,7 +1592,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   [[[#space-level-reserved-endpoints]]] (for example, `collections` or
   `linkset`).
 * [=encryption-immutable=] (409) -- the update tried to change or clear an
-  existing `encryption` marker (the marker is set-once; see
+  existing `encryption` descriptor (the descriptor is set-once; see
   [[[#collection-data-model]]]).
 
 ### Get Collection Description operation {#get-collection-description-operation}
@@ -1754,7 +1758,7 @@ Content-type: application/json
 }
 ```
 
-On a Collection that declares an `encryption` marker (see
+On a Collection that declares an `encryption` descriptor (see
 [[[#encryption-scheme-registry]]]), each item's user-writable metadata is stored
 encrypted (see [[[#resource-metadata-data-model]]]). Item summaries for an
 encrypted Collection therefore carry only server-visible fields (`id`, `url`,
@@ -2210,7 +2214,7 @@ User-writable properties:
     richer structured metadata SHOULD store it as a Resource in its own
     right rather than in `tags`.
 
-On a Collection that declares an `encryption` marker (see
+On a Collection that declares an `encryption` descriptor (see
 [[[#encryption-scheme-registry]]]), the user-writable `custom` object is stored
 **encrypted**: its value is an envelope of the Collection's declared scheme
 (the same envelope profile used for a Resource's content). The server-managed
@@ -2359,11 +2363,10 @@ server never concatenates a Resource's chunks, and reading the parent Resource's
 own content (see [[[#read-resource-operation]]]) returns only that content, not
 its chunks; the chunk set is discovered and read through the endpoints below.
 
-Chunks are the substrate a client-side encryption scheme (see
-[[[#encryption-scheme-registry]]]) can use to store a large or streamed
-encrypted document, but the mechanism itself is scheme-agnostic: the bytes of a
-chunk are opaque to the server whether they are plaintext, ciphertext, or
-anything else.
+Chunks are the substrate the [[[#edv-over-was-profile-v0-1]]] uses to store a
+large or streamed encrypted document, but the mechanism itself is
+scheme-agnostic: the bytes of a chunk are opaque to the server whether they are
+plaintext, ciphertext, or anything else.
 
 ### The chunk address {#the-chunk-address}
 
@@ -2406,7 +2409,7 @@ one URL.
 
 The request body is raw bytes under any `Content-Type`. The server MUST NOT
 parse or validate a chunk body. This holds even for a Collection that declares
-an `encryption` marker (see [[[#encryption-scheme-registry]]]): the
+an `encryption` descriptor (see [[[#encryption-scheme-registry]]]): the
 scheme's envelope validation applies to a Resource's own content, **not** to its
 chunks, because the chunks of an encrypted stream are ciphertext fragments, not
 envelope documents. The parent Resource MUST already exist; a `PUT` to a chunk
@@ -2846,7 +2849,7 @@ stores faithfully with no server cooperation, and whether a given Collection
 is encrypted varies _per Collection_ on the very same backend. Encryption is
 therefore a property of a Collection's data (signaled at the Collection level
 and held in the client's keys), not a capability of the backend. Concretely,
-this signal is the Collection's optional `encryption` marker (see
+this signal is the Collection's optional `encryption` descriptor (see
 [[[#collection-data-model]]]): a non-secret declaration any authorized reader
 discovers from the Collection Description, while the keys stay in the client.
 
@@ -3269,25 +3272,26 @@ a server that does implement encrypted Collections MUST follow the wire formats
 catalogued here.
 </div>
 
-A Collection's optional `encryption` marker (see [[[#collection-data-model]]])
-names a client-side encryption `scheme`. This registry maps each `scheme` token
-to the wire format the server can expect for Resources in such a Collection, so
+A Collection's optional `encryption` descriptor (see [[[#collection-data-model]]])
+names a client-side encryption `scheme` and a `version` of that scheme's wire
+format. This registry maps each `scheme`/`version` pair to the wire format the
+server can expect for Resources in such a Collection, so
 that a [=server=] can hold the [=collection=]'s fail-closed guarantee
 *structurally*, by validating the shape of what is written, rather than
 relying on every client to encrypt correctly. The server never holds key
 material and never decrypts; it validates only the non-secret envelope
 structure, so this enforcement neither requires nor weakens confidentiality.
 
-| `scheme` | Media type         | Envelope profile                                                                                                                                                                                                                                                                                                                          | Reference                                                      |
-|----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
-| `edv`    | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
+| `scheme` | `version` | Media type         | Envelope profile                                                                                                                                                                                                                                                                                                                          | Reference                                                      |
+|----------|-----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| `edv`    | `0.1`     | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
 
 ### Server-side write validation
 
-A [=server=] that recognizes the `scheme` declared by a Collection's
-`encryption` marker MUST validate the body of every Resource content write
-([=POST=] or [=PUT=]) into that Collection against the scheme's envelope
-profile, and MUST reject a non-conforming body -- or a body sent under a
+A [=server=] that recognizes the `scheme`/`version` pair declared by a
+Collection's `encryption` descriptor MUST validate the body of every Resource
+content write ([=POST=] or [=PUT=]) into that Collection against that pair's
+envelope profile, and MUST reject a non-conforming body -- or a body sent under a
 `Content-Type` other than the scheme's registered media type -- with an
 [=encryption-scheme-mismatch=] error.
 
@@ -3314,18 +3318,19 @@ observable only to callers already authorized to write at that target; an
 under-authorized caller receives the merged [=not-found=] instead, and learns
 nothing about the Collection.
 
-### Accepting a marker only when it can be enforced
+### Accepting a descriptor only when it can be enforced
 
-When a Collection create or update operation declares an `encryption` marker (see
+When a Collection create or update operation declares an `encryption` descriptor (see
 [[[#update-or-create-by-id-collection-operation]]]), a server SHOULD reject a
-`scheme` it does not recognize with an [=unsupported-encryption-scheme=] error,
-rather than storing a marker it cannot enforce. This ensures that every marker
-a server accepts is one it validates on write: "this Collection is marked
+`scheme` -- or a `version` of a recognized scheme -- that it does not recognize
+with an [=unsupported-encryption-scheme=] error, rather than storing a descriptor it
+cannot enforce. This ensures that every descriptor
+a server accepts is one it validates on write: "this Collection is declared
 encrypted" then structurally implies "plaintext writes to it are rejected here,"
-closing the gap that a silently unenforced marker would reopen.
+closing the gap that a silently unenforced descriptor would reopen.
 
-A server MAY instead choose to store markers for schemes it does not enforce
-(treating the marker as fully opaque, per [[[#collection-data-model]]]), but
+A server MAY instead choose to store descriptors for schemes it does not enforce
+(treating the descriptor as fully opaque, per [[[#collection-data-model]]]), but
 such a server MUST document that it provides no server-side fail-closed
 guarantee for those Collections, leaving the guarantee entirely to clients.
 
@@ -3333,7 +3338,7 @@ guarantee for those Collections, leaving the guarantee entirely to clients.
 
 <div class="informative">
 
-A server MAY implement the `edv` envelope profile with a JSON Schema equivalent
+A server MAY implement the `edv` `0.1` envelope profile with a JSON Schema equivalent
 to the following. The outer object MUST carry a `jwe` member; only the
 `jwe`'s structural members are checked; their values are opaque ciphertext and
 are not interpreted. A plaintext object under `application/json` (one with no
@@ -3683,6 +3688,169 @@ claim the same triple.
 
 <section class="appendix">
 
+## EDV-over-WAS Profile v0.1 {#edv-over-was-profile-v0-1}
+
+This appendix is normative for clients that claim conformance to it.
+
+<div class="note">
+This profile is a **client-side layout convention**: it constrains how a client
+maps [Encrypted Data Vault](https://identity.foundation/edv-spec/) (EDV)
+operations onto ordinary WAS operations. A
+conforming WAS server needs nothing beyond the features it already advertises,
+and never learns that it is hosting an EDV. Its normative requirements therefore
+bind the *client*; a server's obligations are only the ones it already has for
+the underlying WAS operations.
+</div>
+
+### Purpose {#edv-over-was-purpose}
+
+An Encrypted Data Vault stores JWE-encrypted documents that its server can query
+by blinded index but never decrypt. A client can realize all of that behavior on
+a plain WAS server, because a WAS Resource is an opaque byte store and
+WAS already carries the pieces an EDV needs. This profile fixes the mapping so
+that independent clients interoperate over the same encrypted Collection:
+
+| EDV concept           | WAS realization                                                                    |
+|-----------------------|------------------------------------------------------------------------------------|
+| Vault                 | [=collection=]                                                                     |
+| Document              | Resource (the EDV envelope stored as its content)                                  |
+| Document `sequence`   | conditional writes (`If-Match` / `If-None-Match`; see [[[#conditional-requests]]]) |
+| Blinded index + query | the `blinded-index` query profile (see [[[#query-profile-blinded-index]]])         |
+| Stream chunks         | chunk addressing (see [[[#chunked-resources]]])                                    |
+
+Encryption itself is out of scope of the server entirely: the client holds all
+keys and performs all encryption, decryption, and index blinding, as required by
+[[[#stored-data-is-opaque-to-the-storage-provider]]]. The server enforces WAS
+authorization, maximum-privacy `404`s, and policies over the ciphertext
+unchanged; the encryption is defense in depth layered on top, not a replacement
+for the WAS authorization model.
+
+### The encryption descriptor {#edv-over-was-descriptor}
+
+A Collection realizing this profile declares the `encryption` descriptor
+`{ "scheme": "edv", "version": "0.1" }` in its Collection Description (see
+[[[#collection-data-model]]]). The `edv` scheme's envelope wire format and the
+server's structural fail-closed validation of it are defined by the
+[[[#encryption-scheme-registry]]] and are not restated here. A server that
+recognizes the `edv` scheme thereby guarantees, without holding any key, that a
+plaintext write into the Collection is rejected -- so the profile inherits the
+registry's fail-closed property for free.
+
+Key management -- how the JWE's recipient keys are chosen, distributed, rotated,
+or organized into epochs for multi-recipient sharing -- is deliberately outside
+the scope of both this profile and this specification, exactly as it is for a
+native EDV: those keys and any epoch bookkeeping live in the client, and the JWE
+`recipients` structure the [[[#encryption-scheme-registry]]] describes is where
+multi-recipient encryption is carried. The server sees only opaque envelopes.
+
+### Document layout {#edv-over-was-document-layout}
+
+A client stores each EDV document as the EDV Encrypted Document envelope -- the
+JSON object `{ id, sequence, indexed?, jwe }` -- as the Resource's content, at
+the Resource id equal to the EDV document id. The envelope is the `edv` scheme's
+registered wire format (see [[[#encryption-scheme-registry]]]); a client SHOULD
+write it under the JWE JSON Serialization media type `application/jose+json`
+([[RFC7516]]) where the server registers a parser for it, and MAY fall back to
+`application/json`, which an unmodified WAS server accepts. The plaintext type of
+the resource, and any user-visible metadata, ride *inside* the JWE and are never
+server-visible; the server stores one opaque envelope regardless of what the
+decrypted document is.
+
+### Sequence mapping {#edv-over-was-sequence}
+
+EDV gives every document a monotonic `sequence` and enforces `previous + 1`
+atomically server-side. This profile maps that onto WAS conditional writes (see
+[[[#conditional-requests]]]):
+
+* A fresh insert is a `PUT` carrying `If-None-Match: *`, so a collision with an
+  existing document surfaces as [=precondition-failed=] (`412`) rather than a
+  silent overwrite.
+* An update pre-reads the stored envelope, advances `sequence` to `previous + 1`,
+  and writes it back with `If-Match` pinned to the `ETag` observed on that read,
+  so a concurrent writer's stale update is a `412` rather than a lost update.
+
+A client SHOULD use these preconditions only against a backend advertising
+`conditional-writes` (see [[[#backend-data-model]]]). Against a backend without
+it, the mapping degrades to advisory: the `sequence` is still carried in the
+envelope but is not enforced, and writes are last-writer-wins -- the floor the
+profile reaches on any conformant WAS server.
+
+### Chunked streams {#edv-over-was-chunked-streams}
+
+A large or streamed EDV document is stored as chunks, using WAS chunk addressing
+(see [[[#chunked-resources]]]) against a backend advertising `chunked-streams`:
+
+1. The client writes the document envelope **first**, as an ordinary Resource
+   (satisfying the [[[#store-chunk-operation]]] rule that the parent Resource must
+   exist before any of its chunks). The envelope carries `stream` metadata --
+   `{ sequence, chunks }`, where `chunks` is the total chunk count -- so a reader
+   can learn the extent of the stream from the document alone.
+2. For each chunk `i` in `0 .. chunks - 1`, the client serializes the EDV chunk
+   object `{ index, offset, sequence, jwe }` to JSON and `PUT`s it to chunk index
+   `i` under the `application/octet-stream` content type. The octet-stream type is
+   deliberate: it routes the chunk through the server's raw-binary write path,
+   which is bounded by the backend's `maxUploadBytes` (tens of MiB) rather than
+   the much smaller JSON body ceiling a full encrypted chunk would exceed. The
+   server stores the bytes verbatim and never parses them, so a reader decodes and
+   parses the chunk object back client-side.
+3. A reader fetches the document envelope, reads `stream.chunks`, fetches chunk
+   indexes `0 .. chunks - 1` (see [[[#read-chunk-operation]]]), and decrypts each
+   `jwe` client-side to reassemble the stream.
+
+<div class="note">
+**Security consideration (stream integrity).** The chunk framing above
+authenticates the *bytes* of each chunk (each `jwe` is an AEAD ciphertext) but
+does **not** authenticate a chunk's *position* in the stream or the stream's
+*total length*: the index, offset, and count are carried in plaintext framing and
+in the (individually authenticated but not cross-linked) chunk objects. A
+malicious server that reorders, drops, duplicates, or truncates chunks is
+therefore **not** reliably detectable by the client with this framing. A hardened
+framing -- a per-stream authenticated header, an index-bound AAD on each chunk,
+and an authenticated total length, in the manner of a Cryptomator-style file
+header -- closes this gap and is planned upstream in the EDV specification. When
+it lands, this profile will adopt it under a new scheme `version`; until
+then, a deployment that does not trust its storage provider for availability and
+ordering integrity SHOULD treat streamed documents accordingly.
+</div>
+
+### Search and uniqueness {#edv-over-was-search}
+
+Content search over encrypted documents uses the `blinded-index` query profile
+(see [[[#query-profile-blinded-index]]]): a client attaches blinded (HMAC'd)
+`indexed` attributes to the envelope and queries them via
+`POST /space/{space_id}/{collection_id}/query`. Blinded-attribute uniqueness
+(`unique: true`) is enforced server-side by that profile (see
+[[[#query-profile-blinded-index]]], *Unique blinded attributes*). Both require a
+backend advertising the `blinded-index-query` feature; a client SHOULD gate their
+use on it.
+
+### What this profile does not provide {#edv-over-was-limits}
+
+Relative to a dedicated EDV server, this profile reaches full parity **only for
+the features whose backend affordances the target backend advertises**, and
+degrades to a client-side floor otherwise:
+
+* **Sequence-atomic writes** require `conditional-writes`. Without it, EDV's
+  `previous + 1` guarantee is advisory (last-writer-wins), as described in
+  [[[#edv-over-was-sequence]]].
+* **Server-side blinded-index query** and **`unique: true` enforcement** require
+  `blinded-index-query`. Without it, a client cannot query blinded attributes at
+  the server or rely on it to enforce uniqueness; it must fetch-and-filter
+  client-side (or, as the reference codec does, mint restrict-mode document ids
+  and keep all searchable metadata inside the envelope), and a uniqueness
+  constraint is at best a racy client-side read-then-write.
+* **Stream ordering / truncation integrity** is not authenticated by the current
+  chunk framing (see the security consideration in
+  [[[#edv-over-was-chunked-streams]]]).
+
+For a small single-writer Collection (for example, a credential wallet) the floor
+alone is fully usable; a large or multi-writer Collection wants a backend that
+advertises the affordances above.
+
+</section>
+
+<section class="appendix">
+
 ## Error Type Registry {#error-type-registry}
 
 This appendix is normative.
@@ -3713,9 +3881,9 @@ status code depending on the operation.
 | `https://wallet.storage/spec#invalid-authorization-header`  | <dfn id="invalid-authorization-header">invalid-authorization-header</dfn>   | 400            | An `Authorization`, `Capability-Invocation`, or `Digest` header is malformed, unparseable, or failed verification.                                                                                                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
-| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change or clear an existing `encryption` marker. The marker is set-once: declaring it on a Collection that lacks one is allowed, but changing its `scheme` (or clearing it) on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
+| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change or clear an existing `encryption` descriptor. The descriptor is set-once: declaring it on a Collection that lacks one is allowed, but changing its `scheme` or `version` (or clearing it) on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A Resource write into an encrypted Collection had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
-| `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
+| `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
 | `https://wallet.storage/spec#quota-exceeded`                | <dfn id="quota-exceeded">quota-exceeded</dfn>                               | 507            | A write was rejected because the target backend's storage quota is exhausted. See [[[#quotas]]].                                                                                                                                                                                                                                                                                                                 |
 | `https://wallet.storage/spec#payload-too-large`             | <dfn id="payload-too-large">payload-too-large</dfn>                         | 413            | An upload exceeds the target backend's `maxUploadBytes` constraint (see [[[#quotas]]]). Note that unlike [=quota-exceeded=], this rejection is per-request: smaller uploads may still succeed.                                                                                                                                                                                                                   |
@@ -3912,7 +4080,7 @@ Content-type: application/problem+json
 ```
 
 [=encryption-immutable=] -- a Collection update tried to change or clear an
-existing `encryption` marker (it is set-once; see [[[#collection-data-model]]]):
+existing `encryption` descriptor (it is set-once; see [[[#collection-data-model]]]):
 
 ```http
 HTTP/1.1 409 Conflict
@@ -3920,7 +4088,7 @@ Content-type: application/problem+json
 
 {
   "type": "https://wallet.storage/spec#encryption-immutable",
-  "title": "Collection encryption marker is immutable."
+  "title": "Collection encryption descriptor is immutable."
 }
 ```
 
@@ -4009,7 +4177,7 @@ primary use cases of this specification.
   after X amount of time" or "this is a one-time share and will expire after
   the first successful read request")
 
-### Stored data is opaque to the storage provider
+### Stored data is opaque to the storage provider {#stored-data-is-opaque-to-the-storage-provider}
 
 * The spec needs to support (though not require) end-to-end client side
   encryption of the space. For plausible deniability, this might need to include
