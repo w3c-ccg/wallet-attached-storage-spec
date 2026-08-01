@@ -263,6 +263,9 @@ pre-configured and controlled by the server.
 * `DELETE /space/{space_id}` -- [[[#delete-space-operation]]]
 * `POST /space/{space_id}/export` -- **Reserved / not yet specified.** Export
   (download) a Space's contents (all collections and resources).
+* `POST /space/{space_id}/import` -- **Reserved / not yet specified.** Import
+  (upload) a previously exported Space archive (the operation the registered
+  [=invalid-import=] error kind anticipates).
 
 **Advanced Resource Endpoints:**
 
@@ -661,6 +664,16 @@ granting another DID read-only access to a single Collection:
 The delegated capability is handed to the recipient out of band. The recipient
 invokes it by signing a request with their own key and including the capability
 in the `Capability-Invocation` header.
+
+<div class="ednote">
+**Revocation.** This specification does not yet define a revocation
+operation, although its goals require that a grant can be withdrawn before it
+expires. The current WAS implementation stack ships a Space-scoped revocation
+endpoint (`POST /space/{space_id}/zcaps/revocations/{revocation_id}`; every
+Space-rooted capability verification checks the presented delegation chain
+against the recorded revocations). A future revision will specify the
+operation and reserve its path segments.
+</div>
 
 #### Specifying Access Policy With Space Link Sets
 
@@ -2888,6 +2901,7 @@ collections `id`s MUST NOT collide with the corresponding reserved segments.
 | `/space/{space_id}/backends`    | `backends`       | Storage backends available             |
 | `/space/{space_id}/collections` | `collections`    | List and create collections            |
 | `/space/{space_id}/export`      | `export`         | Export (download) space contents       |
+| `/space/{space_id}/import`      | `import`         | Import (upload) a space export archive |
 | `/space/{space_id}/linkset`     | `linkset`        | Links to auxiliary resources           |
 | `/space/{space_id}/query`       | `query`          | Reserved for cross-collection queries  |
 | `/space/{space_id}/quotas`      | `quotas`         | Reserved for per-backend quota report  |
@@ -3390,7 +3404,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#quota-exceeded`                | <dfn id="quota-exceeded">quota-exceeded</dfn>                               | 507            | A write was rejected because the target backend's storage quota is exhausted. See [[[#quotas]]].                                                                                                                                                                                                                                                                                                                 |
 | `https://wallet.storage/spec#payload-too-large`             | <dfn id="payload-too-large">payload-too-large</dfn>                         | 413            | An upload exceeds the target backend's `maxUploadBytes` constraint (see [[[#quotas]]]). Note that unlike [=quota-exceeded=], this rejection is per-request: smaller uploads may still succeed.                                                                                                                                                                                                                   |
 | `https://wallet.storage/spec#unsupported-operation`         | <dfn id="unsupported-operation">unsupported-operation</dfn>                 | 501            | An optional operation that this server or the target backend does not support (for example, a per-collection quota report on a backend without per-collection accounting).                                                                                                                                                                                                                                       |
-| `https://wallet.storage/spec#invalid-import`                | <dfn id="invalid-import">invalid-import</dfn>                               | 400            | An uploaded archive is not a valid WAS space export.                                                                                                                                                                                                                                                                                                                                                             |
+| `https://wallet.storage/spec#invalid-import`                | <dfn id="invalid-import">invalid-import</dfn>                               | 400            | An uploaded archive is not a valid WAS space export. The import operation itself is reserved and not yet specified (see [[[#reserved-path-segment-registry]]]); this kind is registered ahead of it so implementations converge on one error shape.                                                                                                                                                              |
 | `https://wallet.storage/spec#storage-error`                 | <dfn id="storage-error">storage-error</dfn>                                 | 500            | An underlying storage operation failed.                                                                                                                                                                                                                                                                                                                                                                          |
 | `https://wallet.storage/spec#internal-error`                | <dfn id="internal-error">internal-error</dfn>                               | 500            | An unexpected server-side fault with no more specific kind.                                                                                                                                                                                                                                                                                                                                                      |
 
