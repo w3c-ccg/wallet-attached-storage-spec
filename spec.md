@@ -1459,6 +1459,12 @@ Collection properties (user-writable):
   any attempt to change the `scheme`, decrease or remove the `version`, or
   clear the descriptor, on an existing
   collection, since that would corrupt the already-stored encrypted Resources.
+  On a collection whose stored descriptor
+  carries an explicit `"version": 1`, an update whose descriptor omits
+  `version` counts as an attempt to remove it and is rejected under this rule,
+  though because an absent `version` means `1`, a server MAY instead accept
+  such an update as an idempotent re-declaration of the standing value. Under
+  either reading, the standing version survives unchanged.
   Raising the `version` is permitted (subject to the recognition rule in
   [[[#encryption-scheme-registry]]]): subsequent writes are validated against
   the new profile, while already-stored Resources are unaffected.
