@@ -1438,21 +1438,30 @@ Collection properties (user-writable):
   See section [[[#backends]]] for more details.
 * `encryption` (optional) - A non-secret descriptor declaring that this collection's
   Resources are client-side encrypted, and naming the scheme. The value is an
-  object with required string `scheme` and `version` properties (e.g.
-  `{ "scheme": "edv", "version": "0.1" }` for the EDV-over-WAS scheme); absent
-  means the collection is plaintext. The `version` names the version of the
+  object with a required string `scheme` and an optional positive-integer
+  `version` (e.g. `{ "scheme": "edv", "version": 1 }` for the EDV-over-WAS
+  scheme); an absent `version` means `1`, and an absent descriptor means the
+  collection is plaintext. The `version` names the version of the
   scheme's wire format as registered in the [[[#encryption-scheme-registry]]],
   so a scheme's envelope profile can evolve without ambiguity about which shape
-  a given collection stores. The server
+  a given collection stores; it is an opaque registry key with a total order,
+  not a semantic version. The server
   MUST NOT interpret the descriptor beyond validating its shape -- it never holds key
   material and stores the descriptor opaquely. Its purpose is discovery: any
   authorized reader (including a delegated consumer that did not create the
   collection) learns from the Collection Description that the collection is
-  encrypted, and decrypts with its own keys. The descriptor is **set-once**: a server
+  encrypted, and decrypts with its own keys. The descriptor is **set-once,
+  version-monotonic**: a server
   MUST allow declaring it on a collection that lacks one (e.g. migrating a
-  pre-existing collection), but MUST reject (with an `encryption-immutable` error)
-  any attempt to change its `scheme` or `version`, or clear it, on an existing
+  pre-existing collection), and MUST accept a re-declaration of the standing
+  values (including an explicit `"version": 1` on a descriptor that had omitted
+  it) as an idempotent no-op, but MUST reject (with an `encryption-immutable` error)
+  any attempt to change the `scheme`, decrease or remove the `version`, or
+  clear the descriptor, on an existing
   collection, since that would corrupt the already-stored encrypted Resources.
+  Raising the `version` is permitted (subject to the recognition rule in
+  [[[#encryption-scheme-registry]]]): subsequent writes are validated against
+  the new profile, while already-stored Resources are unaffected.
   See section [[[#backends]]] (client-side encryption note) for the rationale.
   A server that recognizes the declared `scheme` and `version` enforces them
   structurally on write -- rejecting any non-envelope body so plaintext can never
@@ -1591,8 +1600,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=reserved-id=] (409) -- the supplied Collection `id` collides with one of the
   [[[#space-level-reserved-endpoints]]] (for example, `collections` or
   `linkset`).
-* [=encryption-immutable=] (409) -- the update tried to change or clear an
-  existing `encryption` descriptor (the descriptor is set-once; see
+* [=encryption-immutable=] (409) -- the update tried to change the `scheme`,
+  decrease or remove the `version`, or clear an
+  existing `encryption` descriptor (the descriptor is set-once,
+  version-monotonic; see
   [[[#collection-data-model]]]).
 
 ### Get Collection Description operation {#get-collection-description-operation}
@@ -3274,7 +3285,9 @@ catalogued here.
 
 A Collection's optional `encryption` descriptor (see [[[#collection-data-model]]])
 names a client-side encryption `scheme` and a `version` of that scheme's wire
-format. This registry maps each `scheme`/`version` pair to the wire format the
+format -- a positive integer, starting at `1` for each scheme and incremented
+per registered revision (an absent `version` means `1`). This registry maps
+each `scheme`/`version` pair to the wire format the
 server can expect for Resources in such a Collection, so
 that a [=server=] can hold the [=collection=]'s fail-closed guarantee
 *structurally*, by validating the shape of what is written, rather than
@@ -3284,7 +3297,7 @@ structure, so this enforcement neither requires nor weakens confidentiality.
 
 | `scheme` | `version` | Media type         | Envelope profile                                                                                                                                                                                                                                                                                                                          | Reference                                                      |
 |----------|-----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
-| `edv`    | `0.1`     | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
+| `edv`    | `1`       | `application/json` | An [Encrypted Data Vault](https://identity.foundation/edv-spec/) **Encrypted Document**: a JSON object whose `jwe` member is a JWE in JSON Serialization ([[RFC7516]] §7.2) -- a JSON object carrying at least a `ciphertext` member and either a `recipients` array (general serialization) or a top-level `encrypted_key`/`protected` (flattened serialization). The document MAY also carry EDV bookkeeping members (`id`, `sequence`, `indexed`); these are opaque to the server. | [Encrypted Data Vaults](https://identity.foundation/edv-spec/) |
 
 ### Server-side write validation
 
@@ -3338,7 +3351,7 @@ guarantee for those Collections, leaving the guarantee entirely to clients.
 
 <div class="informative">
 
-A server MAY implement the `edv` `0.1` envelope profile with a JSON Schema equivalent
+A server MAY implement the `edv` `1` envelope profile with a JSON Schema equivalent
 to the following. The outer object MUST carry a `jwe` member; only the
 `jwe`'s structural members are checked; their values are opaque ciphertext and
 are not interpreted. A plaintext object under `application/json` (one with no
@@ -3728,8 +3741,11 @@ for the WAS authorization model.
 ### The encryption descriptor {#edv-over-was-descriptor}
 
 A Collection realizing this profile declares the `encryption` descriptor
-`{ "scheme": "edv", "version": "0.1" }` in its Collection Description (see
-[[[#collection-data-model]]]). The `edv` scheme's envelope wire format and the
+`{ "scheme": "edv", "version": 1 }` in its Collection Description (see
+[[[#collection-data-model]]]; a bare `{ "scheme": "edv" }` is equivalent, since
+an absent `version` means `1`). The wire `version` is the integer registry key
+of the envelope format, distinct from this appendix's own "v0.1" maturity
+label. The `edv` scheme's envelope wire format and the
 server's structural fail-closed validation of it are defined by the
 [[[#encryption-scheme-registry]]] and are not restated here. A server that
 recognizes the `edv` scheme thereby guarantees, without holding any key, that a
@@ -3881,7 +3897,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#invalid-authorization-header`  | <dfn id="invalid-authorization-header">invalid-authorization-header</dfn>   | 400            | An `Authorization`, `Capability-Invocation`, or `Digest` header is malformed, unparseable, or failed verification.                                                                                                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
-| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change or clear an existing `encryption` descriptor. The descriptor is set-once: declaring it on a Collection that lacks one is allowed, but changing its `scheme` or `version` (or clearing it) on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
+| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A Resource write into an encrypted Collection had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
 | `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
@@ -4079,8 +4095,10 @@ Content-type: application/problem+json
 }
 ```
 
-[=encryption-immutable=] -- a Collection update tried to change or clear an
-existing `encryption` descriptor (it is set-once; see [[[#collection-data-model]]]):
+[=encryption-immutable=] -- a Collection update tried to change the `scheme`,
+decrease or remove the `version`, or clear an
+existing `encryption` descriptor (it is set-once, version-monotonic; see
+[[[#collection-data-model]]]):
 
 ```http
 HTTP/1.1 409 Conflict
