@@ -715,7 +715,7 @@ Content-type: application/linkset+json
     {
       "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
       "https://wallet.storage/spec#policy": [
-        { 
+        {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
           "type": "application/json"
         }
@@ -890,6 +890,27 @@ before evaluating a precondition, so a `412` is only ever observed by a caller
 already authorized to write the target; an under-authorized caller receives the
 merged [=not-found=] (`404`) instead, per the maximum-privacy rule in
 [[[#error-handling]]].
+
+The mechanism extends to the **Collection Description** itself, whose update
+operation replaces the whole description -- so two concurrent recipient
+changes to a key-epoch roster (see [[[#key-epochs]]]) would otherwise
+silently clobber one another:
+
+* The Get Collection Description response includes an `ETag` header -- a
+  strong validator over the description's monotonic version (the same quoted
+  form Resources use).
+* The Update Collection request MAY carry `If-Match`. A server advertising
+  the `key-epochs` feature MUST evaluate it atomically with the write and
+  reject a stale validator with a [=precondition-failed=] error (412). The
+  Update and Create responses carry the new `ETag`.
+* `If-Match` is opt-in: an unconditional PUT remains valid (and remains
+  last-writer-wins). Recipient-management clients MUST use `If-Match`.
+
+<div class="ednote">
+Authorization for recipient changes is the plain Collection-update capability
+in this version. A dedicated action for recipient management (a policy
+operation, distinct from content writes) remains an open question.
+</div>
 
 A `412` arises only from an explicit `If-Match` / `If-None-Match`
 precondition header. It is deliberately distinct from the header-less `409`
@@ -1472,6 +1493,17 @@ Collection properties (user-writable):
   A server that recognizes the declared `scheme` and `version` enforces them
   structurally on write -- rejecting any non-envelope body so plaintext can never
   be stored in an encrypted Collection; see [[[#encryption-scheme-registry]]].
+  On the `edv` scheme, the descriptor MAY additionally carry the key-epoch
+  public references, `currentEpoch` and `epochs` (see [[[#key-epochs]]]),
+  which let several readers hold per-reader keys and let reader removal rotate
+  the collection key. These fields contain only public keys and wrapped-key
+  ciphertext; as with the rest of the descriptor, the server stores them
+  opaquely and validates only their shape and a small set of integrity rails.
+  Client-side profiles built on epochs (such as [[WAS-EC]]) require these
+  members from the descriptor's creation onward; the server-side optionality
+  here exists because key management is out of this specification's scope, and
+  is not a license for such a profile's clients to operate an epoch-less
+  descriptor.
 
 Collection properties automatically added by the server:
 
@@ -1611,6 +1643,12 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   existing `encryption` descriptor (the descriptor is set-once,
   version-monotonic; see
   [[[#collection-data-model]]]).
+* [=invalid-request-body=] (400) -- the descriptor's key-epoch members are
+  malformed, or the update violates the epoch rails (`epochs` append-only,
+  `currentEpoch` never moving backwards); see [[[#key-epochs]]].
+* [=precondition-failed=] (412) -- the request carried an `If-Match`
+  precondition and the description's current `ETag` does not match it (see
+  [[[#conditional-requests]]]).
 
 ### Get Collection Description operation {#get-collection-description-operation}
 
@@ -1619,6 +1657,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   - For example, when using [=zCaps=] for authorization, the request must be
     signed by the space's [=controller=], or invoke a delegated capability that
     allows the [=GET=] action
+* On a backend advertising the `key-epochs` feature, the response includes an
+  `ETag` header over the description's version, for use with `If-Match` on a
+  subsequent update (see [[[#conditional-requests]]])
 
 #### (HTTP API) GET `/space/{space_id}/{collection_id}`
 
@@ -1692,12 +1733,12 @@ Content-type: application/json
     {
       "id": "321efd4e-23cb-497c-aaee-7bd26e66d39e",
       "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/321efd4e-23cb-497c-aaee-7bd26e66d39e",
-      "contentType": "application/json" 
+      "contentType": "application/json"
     },
     {
       "id": "3943c87f-b617-44bc-ba75-8de2b16c3640",
       "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/3943c87f-b617-44bc-ba75-8de2b16c3640",
-      "contentType": "application/json" 
+      "contentType": "application/json"
     }
   ]
 }
@@ -1775,12 +1816,17 @@ Content-type: application/json
 }
 ```
 
+Where a Resource carries a key-epoch stamp (see [[[#key-epochs]]]), its item
+summary additionally carries it as `epoch` (optional), mirroring the Resource
+Metadata property -- so a reader walking a listing can select its epoch key
+without a per-Resource metadata fetch.
+
 On a Collection that declares an `encryption` descriptor (see
 [[[#encryption-scheme-registry]]]), each item's user-writable metadata is stored
 encrypted (see [[[#resource-metadata-data-model]]]). Item summaries for an
 encrypted Collection therefore carry only server-visible fields (`id`, `url`,
-`contentType`) and omit `name`; a client that needs names decrypts each
-Resource's Metadata itself.
+`contentType`, and, where stamped, `epoch`) and omit `name`; a client that
+needs names decrypts each Resource's Metadata itself.
 
 Errors (see [[[#error-type-registry]]] for canonical examples):
 
@@ -1921,6 +1967,11 @@ in addition to, never instead of, the JSON baseline.
 
 #### (HTTP API) POST `/space/{space_id}/{collection_id}/`
 
+The request MAY include a `WAS-Key-Epoch` header declaring the key epoch the
+body was encrypted under (see [[[#key-epochs]]]); the value is stored as the
+Resource Metadata `epoch` property. When absent, any stored `epoch` stamp is
+cleared.
+
 Example request (adds a JSON object to the `messages` collection).
 Note that since no Resource id was specified, the server auto-generated an id
 and returned it as part of the `Location` response header.
@@ -2043,6 +2094,11 @@ of the Resource. This Resource `id` MUST NOT collide with the list of
     [=PUT=] action
 * This operation is idempotent
 * Returns a `204` success response
+
+The request MAY include a `WAS-Key-Epoch` header declaring the key epoch the
+body was encrypted under (see [[[#key-epochs]]]); the value is stored as the
+Resource Metadata `epoch` property. When absent, any stored `epoch` stamp is
+cleared.
 
 Example request to create a resource via PUT:
 
@@ -2230,6 +2286,14 @@ User-writable properties:
     that tags stay cheap to index and filter on. Applications that need
     richer structured metadata SHOULD store it as a Resource in its own
     right rather than in `tags`.
+* `epoch` (optional) - The key-epoch `id` this Resource's content was
+  encrypted under (see [[[#key-epochs]]]). Declared by the writer -- via the
+  `WAS-Key-Epoch` header on a content write, or a top-level `epoch` member on
+  an Update Resource Metadata request -- and stored opaquely: the server
+  never computes or verifies it. A sibling of `custom`, never inside it: on
+  an encrypted Collection `custom` is the opaque envelope and is replaced
+  wholesale by every metadata write. An omitted `epoch` on a metadata write
+  preserves the stored value; a content write without the header clears it.
 
 On a Collection that declares an `encryption` descriptor (see
 [[[#encryption-scheme-registry]]]), the user-writable `custom` object is stored
@@ -2305,10 +2369,14 @@ A `PUT` to the `/meta` endpoint is a _full_ replacement of the Metadata
 object's `custom` object: the stored `custom` object is replaced by the one
 in the request body, so any user-writable property omitted from it is
 cleared (and a request body with no `custom` property clears them all).
+The top-level `epoch` member is the one exception to full replacement: a
+request MAY carry it to set the Resource's key-epoch stamp, and a request
+that omits it preserves the stored stamp (see [[[#key-epochs]]] -- the stamp
+describes the content write, not the metadata write).
 Server-managed properties are not affected by this operation; a server MUST
-ignore any top-level properties other than `custom` present in the request
-body (so that a client may read the Metadata object, modify it, and `PUT`
-it back without first stripping the server-managed properties).
+ignore any top-level properties other than `custom` and `epoch` present in the
+request body (so that a client may read the Metadata object, modify it, and
+`PUT` it back without first stripping the server-managed properties).
 
 Unlike the [[[#update-or-create-by-id-resource-operation]]], a `PUT` to
 `/meta` does **not** create anything: a Metadata object cannot exist apart
@@ -2352,9 +2420,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=not-found=] (404) -- the Resource does not exist (this operation does not
   create one), or the caller has missing or insufficient authorization,
   per [[[#error-handling]]].
-* [=invalid-request-body=] (400) -- the request body is not a JSON object, or
+* [=invalid-request-body=] (400) -- the request body is not a JSON object,
   the `custom` object (or a property within it) does not have the shape
-  described in [[[#resource-metadata-data-model]]].
+  described in [[[#resource-metadata-data-model]]], or a top-level `epoch`
+  member is present but is not a non-empty string (see [[[#key-epochs]]]).
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
@@ -2701,7 +2770,7 @@ Content-type: application/linkset+json
     {
       "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
       "https://wallet.storage/spec#policy": [
-        { 
+        {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
           "type": "application/json"
         }
@@ -2763,7 +2832,7 @@ Content-type: application/linkset+json
     {
       "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages",
       "https://wallet.storage/spec#policy": [
-        { 
+        {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/policy",
           "type": "application/json"
         }
@@ -2858,6 +2927,11 @@ Backend description properties:
     `query` endpoint (see [[[#query-profile-registry]]]).
   - `chunked-streams` - the backend supports chunk addressing for large blobs
     (see [[[#chunked-resources]]]).
+  - `key-epochs` - the backend persists the Resource `epoch` stamp, serves it
+    on metadata/listing/feed reads, and enforces conditional Collection
+    Description writes (`ETag` / `If-Match`), i.e. the server affordances
+    [[[#key-epochs]]] requires. Clients gate recipient-management UX on this
+    token.
 
 Each token names something the **server** must actively do. Note that
 client-side encryption is deliberately **not** a backend feature: an encrypted
@@ -3402,6 +3476,229 @@ valid `jwe`) fails this profile and is rejected with an
 
 </div>
 
+### Key Epochs {#key-epochs}
+
+A key epoch is one generation of a Collection's encryption key. Rather than
+encrypting every Resource under a single long-lived key, writers encrypt each
+Resource under whichever epoch was current when it was written; the
+Collection's `encryption` descriptor carries the full, append-only roster of
+epochs, so the roster as a whole reads as the Collection's access history. The
+full client-side construction is specified in [[WAS-EC]]; this section defines
+only what the [=server=] stores and validates.
+
+An encrypted Collection with a single shared key set has no cryptographic
+notion of removing a reader: revoking the reader's capability stops the server
+serving it ciphertext, but the reader still holds the key. Key epochs make
+removal meaningful by separating two axes:
+
+* **pull** -- fetching ciphertext. Governed by capabilities, enforced by the
+  server at request time; revocation is immediate and total.
+* **read** -- decrypting it. Governed by possession of an epoch key, enforced
+  by mathematics; revocation is prospective only.
+
+Removing a reader means doing **both**: revoke its capability AND rotate the
+epoch. Neither alone suffices.
+
+#### Epoch data model {#epoch-data-model}
+
+A Collection's `encryption` descriptor MAY carry two additional members:
+
+* `epochs` - An array of epoch objects, each with:
+  * `id` - A unique, opaque epoch identifier (a non-empty string). The
+    reference client uses the `did:key` identifier of the epoch's public
+    key-agreement key, so that a stored envelope's JWE recipient `kid` names
+    its epoch directly, but servers MUST treat the value as opaque.
+  * `recipients` - A non-empty array of wrapped-key entries, one per reader.
+    Each entry reuses the JWE General Serialization `recipients` entry shape
+    verbatim ([[RFC7516]] section 7.2): a `header` object with at least a
+    non-empty string `kid` (the reader's key-agreement key identifier) and
+    `alg` (e.g. `ECDH-ES+A256KW`), plus the wrapped epoch key as a string
+    `encrypted_key`. This is the same shape the `edv` envelope profile already
+    validates -- one wire vocabulary for "a key wrapped to a recipient".
+* `currentEpoch` - The `id` of the epoch new writes encrypt under. MUST name
+  an entry in `epochs`.
+
+Nothing secret appears in these fields: recipient entries hold public key
+identifiers and wrapped-key ciphertext only. The server never holds key
+material, never unwraps, and never verifies that a wrapped key is correct --
+that is unverifiable without the keys, by construction.
+
+Example descriptor:
+
+```json
+{
+  "scheme": "edv",
+  "currentEpoch": "did:key:z6LSepoch2...#z6LSepoch2...",
+  "epochs": [
+    {
+      "id": "did:key:z6LSepoch1...#z6LSepoch1...",
+      "recipients": [
+        {
+          "header": {
+            "kid": "did:key:z6MkappA...#z6LSkakA...",
+            "alg": "ECDH-ES+A256KW",
+            "epk": { "kty": "OKP", "crv": "X25519", "x": "..." },
+            "apu": "...",
+            "apv": "..."
+          },
+          "encrypted_key": "base64url..."
+        }
+      ]
+    },
+    {
+      "id": "did:key:z6LSepoch2...#z6LSepoch2...",
+      "recipients": [ "..." ]
+    }
+  ]
+}
+```
+
+#### Server validation
+
+A server that recognizes the `edv` scheme MUST validate the key-epoch members
+when a Collection create or update supplies them, rejecting a violation with an
+[=invalid-request-body=] error (and a JSON pointer to the offending member):
+
+* `epochs` and `currentEpoch` MUST appear together or not at all.
+* `epochs` MUST be a non-empty array; each entry MUST have a non-empty string
+  `id`, unique across the array, and a non-empty `recipients` array.
+* Each `recipients` entry MUST have a `header` object with non-empty string
+  `kid` and `alg` members, plus a string `encrypted_key`.
+* `currentEpoch` MUST name an `id` present in `epochs`.
+
+On an [update](#update-or-create-by-id-collection-operation) of a descriptor
+that already carries epochs, two further rails
+apply. These protect the Collection's own readers from client bugs -- a dropped
+epoch strands every Resource stamped with it -- and are enforceable without the
+server reading a single byte of what the epochs protect:
+
+* **`epochs` is append-only.** Every previously stored epoch `id` MUST still be
+  present. (Entries within an existing epoch's `recipients` MAY change: adding
+  a reader wraps existing epoch keys to it.)
+* **`currentEpoch` never moves backwards.** The updated `currentEpoch` MUST
+  either equal the stored one or name an epoch `id` that was not previously
+  present (a newly appended epoch). This formulation is independent of array
+  order.
+
+Beyond these rails the server MUST NOT interpret the fields. In particular it
+MUST NOT attempt to check that `recipients` matches any set of capability
+grantees -- the two axes are deliberately independent, and keeping them in sync
+is the client's job.
+
+#### Epoch stamping on Resources {#epoch-stamping-on-resources}
+
+A reader must know which epoch key to unwrap before attempting decryption.
+The writer therefore declares the epoch a Resource was encrypted under, and the
+server stores and serves that declaration:
+
+* A Resource content write ([=POST=] or [=PUT=]) MAY carry a `WAS-Key-Epoch`
+  request header whose value is the epoch `id` (a non-empty string; a present
+  but empty or malformed value is an [=invalid-request-body=] error). The
+  server MUST store the value verbatim as the Resource Metadata `epoch`
+  property. A content write without the header MUST clear any stored
+  stamp: the new representation's epoch is unknown, and a stale stamp is worse
+  than none. The value is client-declared, advisory metadata: the server MUST
+  NOT validate it against the descriptor's `epochs` (a write may race a rotation)
+  and MUST NOT compute it.
+* An Update Resource Metadata request MAY carry a top-level `epoch` member (a
+  sibling of `custom`, and like the header a non-empty string). Unlike
+  `custom`, which is a full replacement, an omitted `epoch` PRESERVES the
+  stored value -- the stamp describes the content write, not the metadata
+  write. It MUST NOT live inside `custom`: on an encrypted Collection `custom`
+  is the opaque envelope and is replaced wholesale by every metadata write.
+* The server MUST return the stored stamp as the `epoch` property of the
+  Resource Metadata object, on each item of a List Collection response, and on
+  each document of the [`changes` query profile](#query-profile-changes) -- so a
+reader walking a listing
+  or replicating from the feed can select its epoch key without a per-Resource
+  metadata fetch.
+
+#### Client procedures
+
+<div class="informative">
+
+The reference construction (implemented by `@interop/was-client` and
+normatively specified in [[WAS-EC]]); other constructions are conformant at
+this specification's level so long as stored envelopes keep satisfying the
+[`edv` envelope profile](#encryption-scheme-registry):
+
+* **A collection's descriptor carries its epoch roster from creation.** The
+  first epoch is installed at provision time by a
+  [create-if-absent](#conditional-requests) write
+  (an existing roster, including a concurrent provisioner's is adopted,
+  not overwritten), before the collection's first content write. There is
+  no epoch-less era: a client of this construction refuses fail-closed to
+  build a cipher from an `edv` descriptor without epochs, and never seals
+  an envelope directly to a reader's own key-agreement key.
+* An **epoch key** is a fresh 32-byte secret used as the seed of an X25519
+  key-agreement key pair, freshly generated per epoch. The epoch `id` is the
+  `did:key` identifier of the epoch public key, so any standard `did:key`
+  resolver that supports X25519 type `did:key` DIDs can resolve the JWE
+  recipient `kid` of a stored envelope, and the `kid` itself names the epoch.
+* **Resources are encrypted with a fresh per-resource content encryption key
+  wrapped to the epoch key** (`ECDH-ES+A256KW`, the epoch key pair as the JWE's
+  sole recipient). The stored envelope is the ordinary EDV Encrypted Document
+  shape; only the key resolution process differs from a native EDV. Each
+  envelope additionally binds its epoch into the JWE protected header
+  ([[WAS-EC]]'s `was` binding), checked unconditionally on read.
+* The **descriptor's `recipients` entries wrap the 32-byte epoch secret to each
+  reader's own key-agreement key** with `ECDH-ES+A256KW` (ephemeral-static
+  ECDH, the RFC 7518 Concat KDF, AES key wrap). A reader finds its `kid` in an
+  epoch's `recipients`, unwraps the epoch secret with its own key, and
+  reconstructs the epoch key pair. A failed unwrap is a failure.
+  In particular, key servers whose unwrap operation resolves a null key on
+  mismatch must be handled by trying the next candidate or failing with a
+  typed error.
+* **Reads** use the Resource's [`epoch` stamp](#epoch-stamping-on-resources)
+  (from metadata, the listing
+  item, or the feed document) as advisory pre-fetch routing: it lets a
+  replica select and unwrap the epoch key before fetching the envelope. The
+  authoritative epoch is the envelope's own -- the JWE recipient `kid`
+  names it, and the AEAD-bound epoch binding is verified against the
+  decrypting key ([[WAS-EC]]). An absent stamp therefore just means
+  route-after-fetch; it is never treated as "assume `currentEpoch`", and
+  there are no unstamped pre-epoch resources to tolerate.
+* **Writes** always encrypt under `currentEpoch` and stamp it via
+  `WAS-Key-Epoch`.
+* **Adding a reader** wraps EVERY epoch's key to it (adding a reader means it
+  can read the Collection, history included) and writes the updated description
+  with `If-Match`. No rotation: adds are inexpensive, removals rotate.
+* **Removing a reader** is one indivisible procedure: (1) revoke the reader's
+  capabilities; (2) mint a fresh epoch key, wrap it to each REMAINING
+  recipient, append the epoch, repoint `currentEpoch`, write with `If-Match`;
+  (3) subsequent writes use the new epoch. Client libraries should not expose
+  a rotate-without-revoke or revoke-without-rotate implementation of "remove".
+* On a [=precondition-failed=] response, re-read the description, re-apply the
+  recipient change to the fresh descriptor, and retry (bounded).
+
+</div>
+
+#### Security considerations
+
+* **Limitations.** Rotation protects Resources written after the
+  rotation, and nothing else. It cannot somehow delete the data a removed reader
+  already downloaded; Resources still stored under an earlier epoch remain
+  readable to a removed reader that obtains their ciphertext (a backup, a
+  colluding reader, a feed pull made before revocation); and it provides no
+  post-compromise security for the removed reader's past traffic. Closing
+  those gaps requires re-encrypting the Collection under the new epoch, which is
+  a client-side bulk rewrite, out of scope here. Specifications and libraries
+  documenting removal MUST state this limitation rather than implying stronger
+  guarantees.
+* **Pull and read stay separate.** The capability governs pull
+  (server-enforced, immediate); the epoch key governs read (mathematics,
+  prospective). Documentation and error messages should never conflate them.
+* **The [blinded-index key](#query-profile-blinded-index) does not rotate with
+  the epoch.** Rotating the
+  `hmac` reference on removal would invalidate every blinded index in the
+  Collection. A removed reader retaining the ability to compute blinded index
+  terms is harmless: the server gates the `blinded-index` query profile behind
+  a capability the reader no longer holds.
+* **A rotation emits no [`changes` feed](#query-profile-changes) entry.** A rekey is a Collection
+  Description change, not a Resource change. A replicating reader that
+  encounters an `epoch` it does not know MUST re-read the Collection
+  Description.
+
 </section>
 
 <section class="appendix">
@@ -3531,6 +3828,12 @@ Each entry in `documents` describes one changed Resource:
   [[[#resource-metadata-data-model]]]), present only when set. On an encrypted
   Collection this is the opaque client-encrypted envelope, passed through
   untouched.
+* `epoch` (optional) - the Resource's key-epoch stamp, mirroring the Resource
+  Metadata property (see [[[#key-epochs]]]), carried so that a replica can
+  select its epoch key without a metadata fetch per document. Note that a
+  rekey (a Collection Description change) emits no feed entry of its own: a
+  replica that encounters an `epoch` it does not know re-reads the Collection
+  Description.
 
 **Tombstones.** A soft-deleted Resource surfaces as
 `{ "id", "_deleted": true, "updatedAt", "version" }` with no `data` member;
@@ -3761,9 +4064,13 @@ registry's fail-closed property for free.
 Key management -- how the JWE's recipient keys are chosen, distributed, rotated,
 or organized into epochs for multi-recipient sharing -- is deliberately outside
 the scope of both this profile and this specification, exactly as it is for a
-native EDV: those keys and any epoch bookkeeping live in the client, and the JWE
-`recipients` structure the [[[#encryption-scheme-registry]]] describes is where
-multi-recipient encryption is carried. The server sees only opaque envelopes.
+native EDV: those keys live in the client, and the server sees only opaque
+envelopes. Multi-recipient encryption is carried either directly, in the JWE
+`recipients` structure the [[[#encryption-scheme-registry]]] describes, or
+through the key-epoch indirection of [[[#key-epochs]]], whose public
+bookkeeping (the descriptor's `epochs` roster and the Resource `epoch` stamp)
+the server stores and serves without interpreting; the client-side epoch
+construction is specified in [[WAS-EC]].
 
 ### Document layout {#edv-over-was-document-layout}
 
@@ -3812,9 +4119,10 @@ A large or streamed EDV document is stored as chunks, using WAS chunk addressing
    `i` under the `application/octet-stream` content type. The octet-stream type is
    deliberate: it routes the chunk through the server's raw-binary write path,
    which is bounded by the backend's `maxUploadBytes` (tens of MiB) rather than
-   the much smaller JSON body ceiling a full encrypted chunk would exceed. The
-   server stores the bytes verbatim and never parses them, so a reader decodes and
-   parses the chunk object back client-side.
+   the much smaller body-size limit servers typically impose on JSON-parsed
+   requests (the reference server's is 1 MiB), which a full encrypted chunk
+   would exceed. The server stores the bytes verbatim and never parses them, so
+   a reader decodes and parses the chunk object back client-side.
 3. A reader fetches the document envelope, reads `stream.chunks`, fetches chunk
    indexes `0 .. chunks - 1` (see [[[#read-chunk-operation]]]), and decrypts each
    `jwe` client-side to reassemble the stream.
