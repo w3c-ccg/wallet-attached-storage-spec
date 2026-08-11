@@ -1462,7 +1462,10 @@ Collection properties (user-writable):
   object with a required string `scheme` and an optional positive-integer
   `version` (e.g. `{ "scheme": "edv", "version": 1 }` for the EDV-over-WAS
   scheme); an absent `version` means `1`, and an absent descriptor means the
-  collection is plaintext. The `version` names the version of the
+  collection is a <dfn id="plaintext-collection"
+  data-lt="plaintext|plaintext collections">plaintext collection</dfn> -- its
+  Resources are stored as the client sent them, with no client-side encryption
+  envelope. The `version` names the version of the
   scheme's wire format as registered in the [[[#encryption-scheme-registry]]],
   so a scheme's envelope profile can evolve without ambiguity about which shape
   a given collection stores; it is an opaque registry key with a total order,
