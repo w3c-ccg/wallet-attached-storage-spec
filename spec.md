@@ -1451,6 +1451,42 @@ Collection properties (user-writable):
   serialization.
 * `name` (optional) - An arbitrary human-readable name for the collection. Does not
   have to be unique.
+* `generator` (optional) - The [=did=] of the application this collection was
+  provisioned for, named for the ActivityStreams 2.0 `generator` term (the
+  application that generated an object). It is the client-asserted identity
+  axis of [[[#writer-attribution]]]: client-supplied, persisted, and writable
+  by the Space controller on create and on update -- updatable so that a
+  controller can backfill the property onto collections that predate it --
+  in contrast to the server-observed, read-only `createdBy`. The contrast is
+  the reason the property exists: under delegated provisioning the party
+  whose capability invocation creates the collection is the user's agent (a
+  wallet), so `createdBy` records the user's [=did=], never the
+  application's, and only the controller is in a position to name the
+  application it provisioned the collection for. `generator` is an assertion
+  by the controller, not a server-verified fact: a server MUST NOT verify,
+  compute, or default it, and MUST NOT use it as an input to authorization.
+  A server MAY separately record that the `generator` [=did=] has been
+  observed invoking a delegated capability on the collection -- corroboration
+  on the same evidentiary footing as `createdBy` (server-observed use, not
+  verified identity). Either way, any reader other than the controller (a
+  delegated consumer of a shared collection, a reader of a world-readable
+  one) MUST treat `generator` as exactly a controller assertion. A present
+  but empty or non-[=did=]-shaped value is an [=invalid-request-body=]
+  error.
+* `generatorOrigin` (optional) - The Web origin (its ASCII serialization,
+  e.g. `https://app.example.com`) the `generator` [=did=] was bound to when
+  the collection was provisioned. A provisioning exchange in which the
+  user's agent authenticates the requesting application by origin (for
+  example a browser-attested credential-handler exchange) establishes an
+  origin binding the storage server is never a party to; stamping the origin
+  beside `generator` preserves that fact and gives a reader a human-readable
+  attribution label without further lookups. Same footing as `generator` in
+  every other respect: controller-asserted, writable by the Space controller
+  on create and update, never verified or defaulted by the server. A present
+  value that is not the ASCII serialization of a Web origin (a URL carrying
+  a path, query, or fragment; the empty string) is an
+  [=invalid-request-body=] error. `generatorOrigin` SHOULD NOT be present
+  without `generator`.
 * `backend` (optional) - An object describing the storage backend selected for
   this collection. If not specified, defaults to the value `{ "id": "default" }`.
   The backend object's `id` property MUST be from the list of [[[#space-backends-available]]]
@@ -1531,6 +1567,8 @@ Example collection (JSON representation):
   "type": ["Collection"],
   "name": "Verifiable Credentials Collection",
   "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
+  "generator": "did:key:z6MkfriqYRX3JBqzsbVbKuBUxDR2nsjLTu6AbrxJZAmFmXWb",
+  "generatorOrigin": "https://app.example.com",
   "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset"
 }
 ```
@@ -2363,6 +2401,15 @@ neither can substitute for the other:
   verbatim and MUST NOT verify it, MUST NOT compute or default it, and MUST
   NOT use it as an input to authorization or any other server decision. It
   is advisory replication metadata, nothing more.
+
+These two leave room for a third, distinct axis: a client-asserted identity
+-- a property whose value is a [=did=] the controller writes and maintains
+about another party. The Collection-level `generator` property (see
+[[[#collection-data-model]]]), naming the application a Collection was
+provisioned for, is this axis. Unlike `writerId` it is an
+identity claim and a stable join key; unlike `createdBy` it is a controller
+assertion rather than a server-verified fact, and a reader treats it as
+exactly that.
 
 In every usage, including the `Writer-Id` request header and the top-level
 `writerId` member of an Update Resource Metadata request, the label is an opaque
