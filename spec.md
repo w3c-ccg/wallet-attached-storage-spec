@@ -1970,7 +1970,7 @@ in addition to, never instead of, the JSON baseline.
 
 #### (HTTP API) POST `/space/{space_id}/{collection_id}/`
 
-The request MAY include a `WAS-Key-Epoch` header declaring the key epoch the
+The request MAY include a `Key-Epoch` header declaring the key epoch the
 body was encrypted under (see [[[#key-epochs]]]); the value is stored as the
 Resource Metadata `epoch` property. When absent, any stored `epoch` stamp is
 cleared.
@@ -2098,7 +2098,7 @@ of the Resource. This Resource `id` MUST NOT collide with the list of
 * This operation is idempotent
 * Returns a `204` success response
 
-The request MAY include a `WAS-Key-Epoch` header declaring the key epoch the
+The request MAY include a `Key-Epoch` header declaring the key epoch the
 body was encrypted under (see [[[#key-epochs]]]); the value is stored as the
 Resource Metadata `epoch` property. When absent, any stored `epoch` stamp is
 cleared.
@@ -2291,7 +2291,7 @@ User-writable properties:
     right rather than in `tags`.
 * `epoch` (optional) - The key-epoch `id` this Resource's content was
   encrypted under (see [[[#key-epochs]]]). Declared by the writer -- via the
-  `WAS-Key-Epoch` header on a content write, or a top-level `epoch` member on
+  `Key-Epoch` header on a content write, or a top-level `epoch` member on
   an Update Resource Metadata request -- and stored opaquely: the server
   never computes or verifies it. A sibling of `custom`, never inside it: on
   an encrypted Collection `custom` is the opaque envelope and is replaced
@@ -3594,7 +3594,7 @@ A reader must know which epoch key to unwrap before attempting decryption.
 The writer therefore declares the epoch a Resource was encrypted under, and the
 server stores and serves that declaration:
 
-* A Resource content write ([=POST=] or [=PUT=]) MAY carry a `WAS-Key-Epoch`
+* A Resource content write ([=POST=] or [=PUT=]) MAY carry a `Key-Epoch`
   request header whose value is the epoch `id` (a non-empty string; a present
   but empty or malformed value is an [=invalid-request-body=] error). The
   server MUST store the value verbatim as the Resource Metadata `epoch`
@@ -3662,7 +3662,7 @@ this specification's level so long as stored envelopes keep satisfying the
   route-after-fetch; it is never treated as "assume `currentEpoch`", and
   there are no unstamped pre-epoch resources to tolerate.
 * **Writes** always encrypt under `currentEpoch` and stamp it via
-  `WAS-Key-Epoch`.
+  `Key-Epoch`.
 * **Adding a reader** wraps EVERY epoch's key to it (adding a reader means it
   can read the Collection, history included) and writes the updated description
   with `If-Match`. No rotation: adds are inexpensive, removals rotate.
