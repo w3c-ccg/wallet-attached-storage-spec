@@ -484,7 +484,7 @@ To that end, the profile offers the following layered mechanisms.
    of people or groups" style): Use the space's `linkset` property to point to
    a linkset that includes a URL to an access control policy document.
 
-#### Authorization Specification Dependencies at a Glance
+#### Authorization Specification Dependencies at a Glance {#authorization-specification-dependencies-at-a-glance}
 
 The initial WAS Authorization Profile uses the following specifications.
 
@@ -493,13 +493,27 @@ The initial WAS Authorization Profile uses the following specifications.
 3. Protocol for getting authorization: Out of scope (implementers are encouraged
    to use VC-API, OpenId4VP, OAuth2, or GNAP, as appropriate)
 4. Proof of Possession / authorization invocation: HTTP Signatures.
-   MUST - [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html),
-   MAY - [HTTP Signatures (Cavage draft 12)](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures)
+   MUST - [HTTP Signatures (Cavage draft 12)](https://datatracker.ietf.org/doc/html/draft-cavage-http-signatures),
+   MAY - [[RFC9421]] HTTP Message Signatures (a future direction for this
+   profile, see the note below)
 5. Request body integrity: the `Digest` header, bound to the request
    signature -- see [[[#request-body-integrity-digest-header]]]
 6. Access Control / Policy language data model: see
    [[[#access-control-policies]]] (`PublicCanRead` is the only normative type for
    v0.1)
+
+<div class="ednote">
+**Signature suite (transitional).** The signature suite of this profile is
+the Cavage HTTP Signatures draft (draft 12). The covered-headers list uses
+its pseudo-headers (`(key-id)`, `(created)`, `(expires)`,
+`(request-target)`), and the worked examples carry an
+`Authorization: Signature ...` header in its syntax. This matches every
+current implementation. [[RFC9421]] HTTP Message Signatures (the
+`Signature` and `Signature-Input` headers) is a future direction for this
+profile. It will be adopted as a coordinated migration across the
+implementations, together with the `Content-Digest` migration described in
+[[[#request-body-integrity-digest-header]]].
+</div>
 
 #### Space `controller` and the Root of Trust {#space-controller-and-the-root-of-trust}
 
@@ -575,9 +589,9 @@ that the payload cannot be substituted without invalidating the signature:
    ```
 
 2. The `content-type` and `digest` headers MUST be included in the
-   signature's covered (signed) headers list, alongside `(key-id)`,
-   `(created)`, `(expires)`, `(request-target)`, `host`, and
-   `capability-invocation`.
+   signature's covered (signed) headers list, alongside the Cavage draft-12
+   pseudo-headers `(key-id)`, `(created)`, `(expires)`, and
+   `(request-target)`, and the `host` and `capability-invocation` headers.
 3. For any request that carries a `Content-Type` header, the server MUST
    require `digest` among the covered headers, and SHOULD independently
    recompute the digest of the received body and compare it to the `Digest`
@@ -612,7 +626,9 @@ descends from [[RFC3230]] (Instance Digests in HTTP). [[RFC9530]] (Digest
 Fields) obsoletes RFC 3230 and replaces `Digest` with `Content-Digest` /
 `Repr-Digest`. The current WAS implementation stack uses the legacy header
 with a multihash value; migration to `Content-Digest` (alongside the move to
-[[RFC9421]] HTTP Message Signatures) is a future direction for this profile.
+[[RFC9421]] HTTP Message Signatures, see
+[[[#authorization-specification-dependencies-at-a-glance]]]) is a future
+direction for this profile.
 </div>
 
 #### Authorization Actions and the Root Capability {#authorization-actions-and-the-root-capability}
