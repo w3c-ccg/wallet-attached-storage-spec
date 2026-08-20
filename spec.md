@@ -524,6 +524,52 @@ Multikey encoding of `Ed25519` elliptic curve keys, as specified in the
 [Multikey section of the CID spec](https://www.w3.org/TR/cid-1.0/#Multikey)
 as the space `controller`.
 
+A Space `controller` MAY use a DID method other than `did:key`, provided the
+method is listed in the [[[#space-controller-did-method-registry]]]. Support for
+every method other than `did:key` is OPTIONAL. A server refuses a `controller`
+whose DID method it does not support with [=invalid-request-body=] (400),
+whether at creation or on an update (see [[[#create-space-errors]]] and
+[[[#update-or-create-by-id-space-operation]]]).
+
+##### Current-key-set rule {#current-key-set-rule}
+
+Whatever the DID method, the key material that verifies an invocation or a
+delegation is the signer's DID document as resolved at the time of
+verification. A signature verifies if and only if its verification method is
+present in that document, under the verification relationship the operation
+requires: `capabilityInvocation` for an invocation, `capabilityDelegation` for
+a delegation. A `did:key` document never changes. A document of a method with
+a mutable, verifiable history (see [[[#verified-log-did-methods]]]) changes
+as that history is extended, so the set of accepted keys is the current one.
+A delegation signed by a key that has since been removed from the delegator's
+document stops verifying the moment that verification method leaves the
+document, even though the capability itself was not revoked. Every capability
+delegated onward from it stops verifying with it. Removing a key from a
+controller's document is therefore an immediate, server-enforced withdrawal
+of everything that key delegated, independent of any capability revocation
+mechanism.
+
+This rule applies to every DID that signs in a capability chain, not only to
+the Space's `controller`. A capability rooted in a `did:key`-controlled Space
+MAY be delegated to a DID of any method the server supports; the server
+resolves that delegate's document the same way when it verifies the
+delegate's invocation or onward delegation.
+
+##### Setting a controller to an optional DID method {#setting-a-controller-to-optional-did-method}
+
+A server that supports an optional DID method decides at which point it
+admits a `controller` of that method. It MAY accept one at Space creation. It
+MAY instead require that every Space be created with a `did:key` controller
+and admit the optional method only through a later update of the existing
+Space (see [[[#update-or-create-by-id-space-operation]]]); such an update
+promotes the `did:key`-controlled Space to the new controller. In both cases
+the proposed
+`controller` MUST resolve and verify before it is stored; a proposed
+controller that does not is refused with [=invalid-request-body=] (400). After
+the controller is stored, later updates to the Space are authorized by the DID
+document being resolved, so storing an unresolvable DID (a typo, a history
+not yet published) would leave the Space with no party able to act on it.
+
 When a space is created via an HTTP `POST` or `PUT` operation (see
 [[[#http-api-post-spaces]]] and [[[#http-api-put-space-space_id]]]), the
 controller for that space
@@ -1038,7 +1084,11 @@ Note that in the example above:
 Errors (see [[[#error-type-registry]]] for canonical examples):
 
 * [=invalid-request-body=] (400) -- the required `controller` property is
-  missing from the request body.
+  missing from the request body, or is a DID of a method the server does not
+  accept as a Space controller (see
+  [[[#space-controller-did-method-registry]]]: `did:key` is mandatory to
+  support, other methods are optional, and a server may admit them only on
+  update).
 * [=missing-authorization=] (401) -- the request lacks a valid proof of
   possession of the `controller` DID.
 * [=controller-mismatch=] (400) -- the invocation is not currently
@@ -1176,7 +1226,9 @@ Conceptually, is maps to a disk partition (for file systems), or a database
   have to be unique.
 * `controller` - A cryptographic identifier (a [=did=])
   of the entity that is authorized to perform operations on the space (or to
-  delegate authorization to other entities)
+  delegate authorization to other entities). See
+  [[[#space-controller-did-method-registry]]] for the DID methods a
+  controller may use.
 
 Space properties automatically added by the server:
 
@@ -1276,6 +1328,13 @@ capability -- which is not necessarily the body's `controller`. On a `PUT` that
 updates an existing Space, the stored `createdBy` is preserved, so transferring
 the Space by writing a new `controller` does not rewrite its creator.
 
+A new `controller` written by an update is subject to the same method
+acceptance as one set at creation (see
+[[[#space-controller-did-method-registry]]]), plus the promotion rule of
+[[[#setting-a-controller-to-optional-did-method]]]: a proposed controller of
+an optional method MUST resolve and verify before it is stored, and a server
+MAY admit such controllers only through this operation.
+
 #### (HTTP API) PUT `/space/{space_id}`
 
 Note that this is a _full_ update (partial updates via http `PATCH` verb might
@@ -1344,7 +1403,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   indistinguishable.
 * [=invalid-request-body=] (400) -- the client is attempting to change an
   immutable field, such as setting a body `id` that does not match the
-  `{space_id}` in the request URL.
+  `{space_id}` in the request URL; or the proposed `controller` is a DID of a
+  method the server does not accept, or one that does not resolve and verify
+  (see [[[#setting-a-controller-to-optional-did-method]]]).
 
 ### Delete Space operation {#delete-space-operation}
 
@@ -3710,6 +3771,109 @@ Repository authorizes retrieval of *every* page of that list. The `limit` and
 not narrow, widen, or otherwise change the [=target=] a capability must match
 (see [[[#root-capability]]]). A server MUST NOT require a distinct capability per
 page.
+
+</section>
+
+<section class="appendix normative">
+
+## Space Controller DID Method Registry {#space-controller-did-method-registry}
+
+<div class="note">
+Every method in this registry other than `did:key` is OPTIONAL to support. A
+server that supports only `did:key` Space controllers is conformant; a server
+that does support a registered method MUST follow that method's profile here.
+</div>
+
+This registry lists the DID methods a Space `controller` (and, by the
+[[[#current-key-set-rule]]], any DID signing in a capability chain) may use,
+and the verification a [=server=] performs for each. See
+[[[#space-controller-and-the-root-of-trust]]] for the method-neutral rules:
+the current-key-set rule, refusal of unsupported methods, and the
+resolve-before-store rule for a proposed controller.
+
+| Method                                                   | Support  | Kind         | Self-hosted history layout                                  | Profile                                   |
+|----------------------------------------------------------|----------|--------------|-------------------------------------------------------------|-------------------------------------------|
+| [`did:key`](https://w3c-ccg.github.io/did-key-spec/)     | REQUIRED | static       | n/a                                                         | [[[#did-key-controller-profile]]]         |
+| [`did:webvh`](https://identity.foundation/didwebvh/)     | OPTIONAL | verified log | `/space/{space_id}/{collection_id}/did.jsonl`               | [[[#did-webvh-controller-profile]]]       |
+
+### Verified-log DID methods {#verified-log-did-methods}
+
+A verified-log DID method is one whose DID document is derived from a
+self-certifying history (a log of entries, each bound to the one before it
+and to the DID's own identifier) rather than from the identifier alone. This
+subsection states the rules common to every such method in the registry; a
+method's profile adds the log layout and the verification its own
+specification requires.
+
+A server that supports a verified-log method MUST resolve a DID of that
+method by reading its history and fully verifying it, as the method's
+specification defines, before using the resulting DID document. The history
+is verified rather than trusted. Once a Space names such a DID as controller,
+the writes that extend that history may themselves be authorized by the very
+document being resolved, so an unverified history would let whoever can write
+it rewrite the Space's root of trust.
+
+#### Self-hosted histories {#self-hosted-histories}
+
+The history of a verified-log controller MAY be stored on the WAS server
+itself, as one or more Resources in a Collection of a Space on that server.
+The method's standard DID-to-URL transformation then lands on
+`/space/{space_id}/{collection_id}/` followed by the method's history file
+name(s); each profile gives the exact layout. Such a controller is
+self-hosted. The Space hosting the history need not be the Space the
+controller controls, since the DID names the history's own Space and
+Collection.
+
+A server that supports a verified-log method MUST resolve self-hosted DIDs of
+that method by reading the history out of its own storage. A network fetch of
+its own URL is not a substitute: it would pass through the history
+Collection's access-control policy and through any intermediary in front of
+the server. Resolution reads the history regardless of the Collection's
+policy, so a capability-gated history still resolves for authorization while
+remaining unreadable to clients that hold no capability for it. A server MAY
+accept only self-hosted controllers of a method and refuse every other DID of
+that method (one whose history lives on another host) with
+[=invalid-request-body=] (400), the same way it refuses an unsupported
+method.
+
+Hosting a history under a Space's path is not an endorsement by that Space's
+controller: any party holding a write grant there can store a resolvable
+history. A verified-log DID is self-certifying through its own identifier and
+history. It acquires authority in WAS only by being referenced, as a Space's
+stored `controller` or as the `controller` of a delegated capability, and not
+by where its history is stored.
+
+A server MAY cache a resolved document. It MUST drop the cached entry
+whenever the history the document was resolved from may have changed, so
+that a write to a self-hosted history (such as one adding or removing a key)
+is reflected by the next verification that resolves that DID.
+
+### `did:key` controller profile {#did-key-controller-profile}
+
+The mandatory floor. A conformant server MUST accept a
+[`did:key`](https://w3c-ccg.github.io/did-key-spec/) using the Multikey
+encoding of `Ed25519` elliptic curve keys, as specified in the
+[Multikey section of the CID spec](https://www.w3.org/TR/cid-1.0/#Multikey),
+as a Space `controller`. The DID document is derived from the identifier
+alone; there is nothing to resolve or verify beyond the key encoding, and the
+document never changes.
+
+### `did:webvh` controller profile {#did-webvh-controller-profile}
+
+A verified-log method; the rules of [[[#verified-log-did-methods]]] apply.
+
+History layout. The history is the method's `did.jsonl` log. Self-hosted,
+the DID `did:webvh:{scid}:{host}:space:{space_id}:{collection_id}` resolves
+from the Resource at `https://{host}/space/{space_id}/{collection_id}/did.jsonl`
+under the method's standard DID-to-HTTPS transformation. The `{collection_id}`
+is any Collection id; WAS Collection ids are restricted to characters the
+method's path encoding leaves untouched, so the mapping is direct.
+
+Verification. Before using the resolved document the server MUST verify the
+log as the method's specification defines: the SCID is checked against the
+log's first entry, the hash chain of entries is verified, pre-rotation
+commitments (`nextKeyHashes`) are enforced, and each entry's proof is
+verified against the update keys authorized by the entry before it.
 
 </section>
 
