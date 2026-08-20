@@ -1,6 +1,6 @@
 <div class="remove">
 
-# Wallet Attached Storage v0.3
+# Wallet Attached Storage v0.4
 
 **Abstract:** Wallet Attached Storage is a general purpose permissioned
 storage API -- CRUD over an HTTP hierarchy with object-capability authorization.
@@ -35,7 +35,7 @@ See [[[#scope-and-conformance-profiles]]] for the full conformance-tier map, and
 [[[#quickstart-your-first-request]]] to watch a first request succeed.
 </div>
 
-### Version History
+### Version History and Roadmap {#version-history}
 
 <div class="note">
 This subsection is non-normative.
@@ -47,9 +47,11 @@ This subsection is non-normative.
   <https://wallet.storage/spec>.
 * **v0.3** (through June 2026) -- Initial incubation at MIT DCC, based on
   implementation experience.
-* (upcoming) **v0.4** (mid-July 2026) -- Migrated to the W3C Credentials Community Group
-  (CCG) for further incubation. Likely pending a rename (to be discussed by the
-  group).
+* **v0.4** (mid-July 2026 - now) -- Migrated to the W3C Credentials Community
+  Group (CCG)'s Capability Based Storage Task Force for further incubation.
+  Goal: updating spec to match deployments and learnings.
+* **v0.5** (tbd) - Goal: Breaking changes, refactoring, community input.
+  Likely pending a rename.
 </div>
 
 ### Reading This Document {#reading-this-document}
