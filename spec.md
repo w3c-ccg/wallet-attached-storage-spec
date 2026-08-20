@@ -1554,10 +1554,16 @@ Collection properties (user-writable):
   On the `edv` scheme, the descriptor MAY additionally carry the key-epoch
   public references, `currentEpoch` and `epochs` (see [[[#key-epochs]]]),
   which let several readers hold per-reader keys and let reader removal rotate
-  the collection key. These fields contain only public keys and wrapped-key
-  ciphertext; as with the rest of the descriptor, the server stores them
-  opaquely and validates only their shape and a small set of integrity rails.
-  Client-side profiles built on epochs (such as [[WAS-EC]]) require these
+  the collection key, and the blinding-key reference `hmac` (see
+  [[[#blinding-key-member]]]), which distributes the key under which a client
+  blinds the attributes it indexes for the `blinded-index` query profile.
+  These members contain only public key identifiers and wrapped-key
+  ciphertext. As with the rest of the descriptor, the server stores them
+  opaquely. A server that recognizes the scheme validates their shape,
+  enforces a small set of server-side invariants on the epoch members
+  (`epochs` is append-only, `currentEpoch` never moves backwards), holds the
+  `hmac` member permanent once present, and interprets nothing else.
+  Client-side profiles built on epochs (such as [[WAS-EC]]) require the epoch
   members from the descriptor's creation onward; the server-side optionality
   here exists because key management is out of this specification's scope, and
   is not a license for such a profile's clients to operate an epoch-less
@@ -1670,6 +1676,8 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   cannot use the `409` to probe a Space for existing Collection ids.
 * [=unsupported-backend=] (409) -- the supplied `backend` id is not in that
   space's [[[#space-backends-available]]] list.
+* [=invalid-request-body=] (400) -- the `encryption` descriptor's key-epoch
+  or `hmac` members are malformed (see [[[#key-epochs]]]).
 
 ### Update (or Create By Id) Collection operation {#update-or-create-by-id-collection-operation}
 
@@ -1705,13 +1713,15 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   [[[#space-level-reserved-endpoints]]] (for example, `collections` or
   `linkset`).
 * [=encryption-immutable=] (409) -- the update tried to change the `scheme`,
-  decrease or remove the `version`, or clear an
-  existing `encryption` descriptor (the descriptor is set-once,
-  version-monotonic; see
-  [[[#collection-data-model]]]).
-* [=invalid-request-body=] (400) -- the descriptor's key-epoch members are
-  malformed, or the update violates the epoch rails (`epochs` append-only,
-  `currentEpoch` never moving backwards); see [[[#key-epochs]]].
+  decrease or remove the `version`, or clear an existing `encryption`
+  descriptor (the descriptor is set-once, version-monotonic; see
+  [[[#collection-data-model]]]). Also raised when the update changes the `id`
+  or `type` of the descriptor's `hmac` member, or removes that member; the
+  blinding key is permanent once present (see [[[#blinding-key-member]]]).
+* [=invalid-request-body=] (400) -- the descriptor's key-epoch or `hmac`
+  members are malformed, or the update violates a server-side invariant on
+  the epoch members (`epochs` append-only, `currentEpoch` never moving
+  backwards); see [[[#key-epochs]]].
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
   precondition and the description's current `ETag` does not match it (see
   [[[#conditional-requests]]]).
@@ -3936,7 +3946,9 @@ epoch. Neither alone suffices.
 
 #### Epoch data model {#epoch-data-model}
 
-A Collection's `encryption` descriptor MAY carry two additional members:
+A Collection's `encryption` descriptor MAY carry the two key-epoch members
+below. It MAY also carry the `hmac` member of [[[#blinding-key-member]]],
+where its clients use the `blinded-index` query profile.
 
 * `epochs` - An array of epoch objects, each with:
   * `id` - A unique, opaque epoch identifier (a non-empty string). The
@@ -3988,7 +4000,70 @@ Example descriptor:
 }
 ```
 
-#### Server validation
+#### The blinding-key member {#blinding-key-member}
+
+A Collection's `encryption` descriptor MAY also carry an `hmac` member: the
+public reference to the Collection's blinding key, the HMAC key under which a
+client blinds the attribute names and values it stores in an envelope's
+`indexed` member and sends in a `blinded-index` query (see
+[[[#query-profile-blinded-index]]]). The member is a JSON object:
+
+* `id` - A non-empty string identifying the blinding key, opaque to the
+  server. It is the value an envelope's `indexed[].hmac.id` carries and the
+  value a `blinded-index` query names as its `index`.
+* `type` - A non-empty string naming the key type (the [[WAS-EC]] profile uses
+  `Sha256HmacKey2019`). Servers MUST treat the value as opaque.
+* `recipients` - A non-empty array of wrapped-key entries, one per reader, in
+  exactly the `recipients` entry shape of an epoch (see
+  [[[#epoch-data-model]]]). Each entry carries the blinding secret wrapped to
+  one reader's key-agreement key, so one wrap construction serves epoch keys
+  and the blinding key alike.
+
+As with the epoch members, nothing secret appears here: the blinding secret
+travels only as per-reader wrapped ciphertext, and the server never unwraps
+it. How the key is minted, which readers hold it, and how its `recipients` are
+maintained alongside the epochs' are client-side matters defined by
+[[WAS-EC]]. One property of the member does matter to the server: the
+blinding key is permanent. Every blinded token in the Collection is computed
+under it, so replacing or dropping it would orphan every blinded index at
+once. The server therefore treats a stored `hmac` member as immutable in its
+`id` and `type` and never removable (see the server validation below). As
+with the epoch members, this validation is part of recognizing the `edv`
+scheme: a server that does not support encrypted Collections, or that stores
+descriptors it does not enforce (see [[[#encryption-scheme-registry]]]),
+treats `hmac` as an opaque member. The
+[[WAS-EC]] profile goes further and installs the key when the Collection is
+provisioned, since envelopes written before it carry no tokens. This
+specification leaves that timing rule to clients and does not require the
+server to enforce it.
+
+Example descriptor carrying a blinding key (epoch members elided):
+
+```json
+{
+  "scheme": "edv",
+  "hmac": {
+    "id": "urn:uuid:6d4a2c3e-9b1f-4c8e-a0d2-7f5e1b3c9a44",
+    "type": "Sha256HmacKey2019",
+    "recipients": [
+      {
+        "header": {
+          "kid": "did:key:z6MkappA...#z6LSkakA...",
+          "alg": "ECDH-ES+A256KW",
+          "epk": { "kty": "OKP", "crv": "X25519", "x": "..." },
+          "apu": "...",
+          "apv": "..."
+        },
+        "encrypted_key": "base64url..."
+      }
+    ]
+  },
+  "currentEpoch": "did:key:z6LSepoch1...#z6LSepoch1...",
+  "epochs": [ "..." ]
+}
+```
+
+#### Server validation {#key-epoch-server-validation}
 
 A server that recognizes the `edv` scheme MUST validate the key-epoch members
 when a Collection create or update supplies them, rejecting a violation with an
@@ -4001,10 +4076,23 @@ when a Collection create or update supplies them, rejecting a violation with an
   `kid` and `alg` members, plus a string `encrypted_key`.
 * `currentEpoch` MUST name an `id` present in `epochs`.
 
+The same server MUST validate the `hmac` member (see
+[[[#blinding-key-member]]]) when a create or update supplies it, on the same
+terms:
+
+* `hmac` MUST be an object with non-empty string `id` and `type` members and a
+  non-empty `recipients` array; each `recipients` entry MUST have the shape
+  required of an epoch's entries above (a `header` object with non-empty
+  string `kid` and `alg` members, plus a string `encrypted_key`).
+
+A server that does not recognize the scheme applies none of these checks; see
+[[[#encryption-scheme-registry]]] for what such a server does with the
+descriptor.
+
 On an [update](#update-or-create-by-id-collection-operation) of a descriptor
-that already carries epochs, two further rails
-apply. These protect the Collection's own readers from client bugs -- a dropped
-epoch strands every Resource stamped with it -- and are enforceable without the
+that already carries epochs, two server-side invariants also apply. These
+protect the Collection's own readers from client bugs -- a dropped epoch
+strands every Resource stamped with it -- and are enforceable without the
 server reading a single byte of what the epochs protect:
 
 * **`epochs` is append-only.** Every previously stored epoch `id` MUST still be
@@ -4015,10 +4103,24 @@ server reading a single byte of what the epochs protect:
   present (a newly appended epoch). This formulation is independent of array
   order.
 
-Beyond these rails the server MUST NOT interpret the fields. In particular it
-MUST NOT attempt to check that `recipients` matches any set of capability
-grantees -- the two axes are deliberately independent, and keeping them in sync
-is the client's job.
+A third invariant covers the `hmac` member, on an update of a descriptor that
+already carries one:
+
+* **`hmac` is permanent.** The member MUST remain present, with its `id` and
+  `type` unchanged. Its `recipients` entries MAY change (a reader being added
+  or removed). Changing either value, or removing the member, would orphan
+  every blinded index in the Collection, just as a `scheme` change would
+  corrupt its Resources. A violation is therefore rejected with the same
+  [=encryption-immutable=] error (see [[[#collection-data-model]]]). Introducing `hmac` on a stored
+  descriptor that lacks it is not a server-side violation; whether a client
+  may do so is a matter for the client-side profile (see
+  [[[#blinding-key-member]]]).
+
+Beyond this shape validation and these invariants the server MUST NOT
+interpret the members. In particular it MUST NOT attempt to check that the
+`recipients` of an epoch or of `hmac` match any set of capability grantees --
+the two axes are deliberately independent, and keeping them in sync is the
+client's job.
 
 #### Epoch stamping on Resources {#epoch-stamping-on-resources}
 
@@ -4129,12 +4231,14 @@ this specification's level so long as stored envelopes keep satisfying the
 * **Pull and read stay separate.** The capability governs pull
   (server-enforced, immediate); the epoch key governs read (mathematics,
   prospective). Documentation and error messages should never conflate them.
-* **The [blinded-index key](#query-profile-blinded-index) does not rotate with
-  the epoch.** Rotating the
-  `hmac` reference on removal would invalidate every blinded index in the
-  Collection. A removed reader retaining the ability to compute blinded index
-  terms is harmless: the server gates the `blinded-index` query profile behind
-  a capability the reader no longer holds.
+* **The [blinding key](#blinding-key-member) does not rotate with the
+  epoch.** Rotating the `hmac` reference on removal would invalidate every
+  blinded index in the Collection, which is why the server treats the member
+  as permanent (see [[[#blinding-key-member]]] and
+  [[[#key-epoch-server-validation]]]). A removed reader retaining the ability
+  to compute blinded index terms is harmless: the server gates the
+  `blinded-index` query profile (see [[[#query-profile-blinded-index]]])
+  behind a capability the reader no longer holds.
 * **A rotation emits no [`changes` feed](#query-profile-changes) entry.** A rekey is a Collection
   Description change, not a Resource change. A replicating reader that
   encounters an `epoch` it does not know MUST re-read the Collection
@@ -4655,7 +4759,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#not-found`                     | <dfn id="not-found">not-found</dfn>                                         | 404            | The resource (Space, Collection, or Resource) does not exist, or the caller is not authorized to access it. These two conditions are deliberately indistinguishable -- see the privacy note below.                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#invalid-id`                    | <dfn id="invalid-id">invalid-id</dfn>                                       | 400            | A Space, Collection, or Resource `id` is missing or not URL-safe.                                                                                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#reserved-id`                   | <dfn id="reserved-id">reserved-id</dfn>                                     | 409            | A client-supplied `id` collides with a [[[#reserved-path-segment-registry]]] segment.                                                                                                                                                                                                                                                                                                                            |
-| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
+| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. Also returned when a write would violate a `unique: true` blinded-attribute claim (see [[[#query-profile-blinded-index]]]). (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
 | `https://wallet.storage/spec#invalid-request-body`          | <dfn id="invalid-request-body">invalid-request-body</dfn>                   | 400            | The request body is missing or invalid (e.g. a required property is absent). Entries in `errors` SHOULD carry a `pointer` to the offending field.                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#invalid-cursor`                | <dfn id="invalid-cursor">invalid-cursor</dfn>                               | 400            | A pagination `cursor` query parameter is malformed or can no longer be honored (e.g. an expired snapshot). See [[[#pagination]]].                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#missing-content-type`          | <dfn id="missing-content-type">missing-content-type</dfn>                   | 400            | A required `Content-Type` header is missing.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -4663,7 +4767,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#invalid-authorization-header`  | <dfn id="invalid-authorization-header">invalid-authorization-header</dfn>   | 400            | An `Authorization`, `Capability-Invocation`, or `Digest` header is malformed, unparseable, or failed verification.                                                                                                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
-| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources. See [[[#collection-data-model]]].                                                                                       |
+| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor; or it tried to change the `id` or `type` of the descriptor's `hmac` member, or remove that member. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources, and replacing or dropping the blinding key would orphan every blinded index. See [[[#collection-data-model]]] and [[[#blinding-key-member]]]. |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A write into an encrypted Collection -- a Resource's content, or the `custom` object of a Resource's or the Collection's own Metadata -- had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
 | `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
