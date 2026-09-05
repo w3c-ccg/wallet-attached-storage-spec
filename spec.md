@@ -1624,7 +1624,9 @@ Collection properties (user-writable):
   encrypted, and decrypts with its own keys. The descriptor is **set-once,
   version-monotonic**: a server
   MUST allow declaring it on a collection that lacks one (e.g. migrating a
-  pre-existing collection), and MUST accept a re-declaration of the standing
+  pre-existing collection), provided no `plaintext` member is present (the
+  two are mutually exclusive; see `plaintext` below), and MUST accept a
+  re-declaration of the standing
   values (including an explicit `"version": 1` on a descriptor that had omitted
   it) as an idempotent no-op, but MUST reject (with an `encryption-immutable` error)
   any attempt to change the `scheme`, decrease or remove the `version`, or
@@ -1660,6 +1662,61 @@ Collection properties (user-writable):
   here exists because key management is out of this specification's scope, and
   is not a license for such a profile's clients to operate an epoch-less
   descriptor.
+* `plaintext` (optional) - An object declaring the server-side processing the
+  server may apply to this collection's Resources. It is the counterpart of
+  `encryption`: the two members describe the two ways a server may treat
+  what it stores, and a Collection Description MUST NOT carry both. The
+  exclusion is by presence. An empty `plaintext` object still excludes
+  `encryption`, and a server MUST reject a create or update whose resulting
+  description would carry both with an [=invalid-request-body=] error. A
+  description carrying neither member is a [=plaintext collection=] with no
+  server-side processing declared. Unlike the set-once `encryption`,
+  `plaintext` is updatable for the collection's life: a supplied object
+  replaces the stored one, an update that omits the member leaves the stored
+  one untouched, and `{}` is the empty state (present, declaring nothing).
+  A `plaintext` value that is not an object is an [=invalid-request-body=]
+  error. Its one member in this version is `indexes`:
+  * `indexes` (optional) - An array naming the attributes the server extracts
+    from stored Resources and indexes for query profiles that read plaintext
+    (see [[[#query-profile-registry]]]). This is
+    <dfn id="plaintext-indexes" data-lt="plaintext index|plaintext indexes">server-side plaintext indexing</dfn>:
+    the server reads the stored values. It is distinct from the client-blinded indexes of an
+    encrypted collection, which the client computes under the descriptor's
+    `hmac` key (see [[[#blinding-key-member]]]), carries in each envelope's
+    `indexed` member, and queries through the `blinded-index` profile
+    (see [[[#query-profile-blinded-index]]]). Each entry is an object
+    `{ "name": ..., "source": ..., "unique": ... }`, or a bare string as
+    shorthand for `{ "name": "<string>", "source": "content" }`:
+    * `name` - The attribute name. Required, a non-empty string, and unique
+      across the array regardless of `source`, since queries refer to an
+      attribute by name alone.
+    * `source` (optional) - Where the attribute is read from: `content`
+      (the default) reads the top-level member of that name from a JSON
+      Resource's stored content; `custom` reads it from the `custom` object
+      of the Resource's Metadata (see [[[#resource-metadata-data-model]]]),
+      which is how a Blob Resource becomes queryable. Any other value is an
+      [=invalid-request-body=] error.
+    * `unique` (optional) - A boolean, `false` when absent. When `true`, the
+      attribute's `(name, value)` pair is a uniqueness claim within the
+      collection: a server MUST reject a Resource write whose extracted
+      value is already held by a *different* Resource in the same
+      collection with an [=id-conflict=] error, under the same
+      authorization-first and atomicity rules as unique blinded attributes
+      (see [[[#query-profile-blinded-index]]], *Unique blinded
+      attributes*). A Resource re-asserting its own value never
+      self-conflicts. A server MUST also reject an update that adds
+      `unique: true` for an attribute whose already-stored Resources
+      violate it, with an [=id-conflict=] error, leaving the stored
+      declaration unchanged.
+
+    Declaring a `content`-sourced entry is the collection's opt-in to the
+    server parsing its JSON Resource content on write. A malformed
+    `indexes` array (not an array, an entry that is neither a non-empty
+    string nor an object with a non-empty string `name`, a non-boolean
+    `unique`, or a duplicate `name`) is an [=invalid-request-body=] error.
+    Adding or removing an entry is a declaration change only: a server
+    MUST NOT require the already-stored Resources to be rewritten for the
+    change to take effect.
 
 Collection properties automatically added by the server:
 
@@ -1769,7 +1826,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=unsupported-backend=] (409) -- the supplied `backend` id is not in that
   space's [[[#space-backends-available]]] list.
 * [=invalid-request-body=] (400) -- the `encryption` descriptor's key-epoch
-  or `hmac` members are malformed (see [[[#key-epochs]]]).
+  or `hmac` members are malformed (see [[[#key-epochs]]]); or the body
+  carries both `plaintext` and `encryption`, or a malformed `plaintext`
+  member (see [[[#collection-data-model]]]).
 
 ### Update (or Create By Id) Collection operation {#update-or-create-by-id-collection-operation}
 
@@ -1813,7 +1872,14 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=invalid-request-body=] (400) -- the descriptor's key-epoch or `hmac`
   members are malformed, or the update violates a server-side invariant on
   the epoch members (`epochs` append-only, `currentEpoch` never moving
-  backwards); see [[[#key-epochs]]].
+  backwards); see [[[#key-epochs]]]. Also raised when the resulting
+  description would carry both `plaintext` and `encryption` (whichever of
+  the two the update adds), or when the supplied `plaintext` member is
+  malformed (see [[[#collection-data-model]]]).
+* [=id-conflict=] (409) -- the update adds `unique: true` to a
+  `plaintext.indexes` entry whose already-stored Resources violate the
+  claim; the stored declaration is left unchanged (see
+  [[[#collection-data-model]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
   precondition and the description's current `ETag` does not match it (see
   [[[#conditional-requests]]]).
@@ -2465,6 +2531,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   authorization has been verified: an under-authorized caller receives the
   privacy-merged [=not-found=] (404) per [[[#error-handling]]], so that it
   cannot use the `409` to probe a Collection for existing Resource ids.
+  Also raised when the write's extracted value for a `unique: true`
+  [=plaintext index=] is already held by a different Resource in the
+  Collection (see [[[#collection-data-model]]]).
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
@@ -2602,6 +2671,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   invalid, or the caller has missing or insufficient authorization; per
   [[[#error-handling]]] an under-authorized request is indistinguishable from a
   missing target.
+* [=id-conflict=] (409) -- the write's extracted value for a `unique: true`
+  [=plaintext index=] is already held by a different Resource in the
+  Collection (see [[[#collection-data-model]]]). Checked only after the
+  caller's authorization has been verified, and atomically with the write.
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
@@ -4954,7 +5027,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#not-found`                     | <dfn id="not-found">not-found</dfn>                                         | 404            | The resource (Space, Collection, or Resource) does not exist, or the caller is not authorized to access it. These two conditions are deliberately indistinguishable -- see the privacy note below.                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#invalid-id`                    | <dfn id="invalid-id">invalid-id</dfn>                                       | 400            | A Space, Collection, or Resource `id` is missing or not URL-safe.                                                                                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#reserved-id`                   | <dfn id="reserved-id">reserved-id</dfn>                                     | 409            | A client-supplied `id` collides with a [[[#reserved-path-segment-registry]]] segment.                                                                                                                                                                                                                                                                                                                            |
-| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. Also returned when a write would violate a `unique: true` blinded-attribute claim (see [[[#query-profile-blinded-index]]]). (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
+| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. Also returned when a write would violate a `unique: true` blinded-attribute claim (see [[[#query-profile-blinded-index]]]) or a `unique: true` [=plaintext index=] claim, and when a Collection update adds a `unique: true` plaintext index over Resources that already violate it (see [[[#collection-data-model]]]). (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
 | `https://wallet.storage/spec#invalid-request-body`          | <dfn id="invalid-request-body">invalid-request-body</dfn>                   | 400            | The request body is missing or invalid (e.g. a required property is absent). Entries in `errors` SHOULD carry a `pointer` to the offending field.                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#invalid-cursor`                | <dfn id="invalid-cursor">invalid-cursor</dfn>                               | 400            | A pagination `cursor` query parameter is malformed or can no longer be honored (e.g. an expired snapshot). See [[[#pagination]]].                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#missing-content-type`          | <dfn id="missing-content-type">missing-content-type</dfn>                   | 400            | A required `Content-Type` header is missing.                                                                                                                                                                                                                                                                                                                                                                     |
