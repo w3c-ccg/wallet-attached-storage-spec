@@ -4529,7 +4529,9 @@ Response body:
       "_deleted": false,
       "updatedAt": "2026-01-15T12:00:00.000Z",
       "version": 1,
+      "etag": "3mJr7AoUXx2.1",
       "metaVersion": 3,
+      "metaEtag": "3mJr7AoUXx2.3",
       "createdBy": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
       "writerId": "z6fVXHKn8PdQm2Rt",
       "data": { "message": "hi" },
@@ -4550,12 +4552,20 @@ Each entry in `documents` describes one changed Resource:
   otherwise. The underscore-prefixed member name is deliberate: it matches the
   wire convention of offline-first replication clients.
 * `updatedAt` - the ISO-8601 timestamp of the change; the feed's ordering key.
-* `version` - a monotonic content version. This is the same validator a server
-  surfaces as the `ETag` where conditional writes are supported (see
-  [[[#conditional-requests]]]); it is always present, and a content write bumps
-  it.
+* `version` - a monotonic content version, for ordering and comparison. It is
+  always present, and a content write bumps it. It is not a validator: a client
+  MUST NOT construct an `If-Match` value from it.
+* `etag` (optional) - the Resource's current content `ETag`, quoted exactly as
+  the server returns it in the response header (see
+  [[[#conditional-requests]]]). A server that supports conditional writes MUST
+  include it, so that a replica can send `If-Match` from the feed entry without
+  a `GET` per Resource. A client echoes it verbatim.
 * `metaVersion` - a monotonic metadata version, present only once metadata has
   been written for the Resource, and bumped by a metadata-only edit.
+* `metaEtag` (optional) - the current `ETag` of the Resource's Metadata object,
+  quoted exactly as the server returns it on the `meta` sub-resource. Present
+  under the same conditions as `metaVersion` on a server that supports
+  conditional writes; echoed verbatim as `If-Match` on a metadata write.
 * `createdBy` - the [=did=] of the Resource's creator, as defined in
   [[[#resource-metadata-data-model]]]. A server that records `createdBy` SHOULD
   surface it here, so that a replica learns each Resource's creator from the feed
@@ -4585,8 +4595,9 @@ Each entry in `documents` describes one changed Resource:
   everywhere else it is advisory and never server-verified.
 
 **Tombstones.** A soft-deleted Resource surfaces as
-`{ "id", "_deleted": true, "updatedAt", "version" }` with no `data` member;
-the deletion bumps `version`. A tombstone retains its `createdBy`, where one was
+`{ "id", "_deleted": true, "updatedAt", "version", "etag" }` with no `data`
+member; the deletion bumps `version` and `etag` is the tombstone's validator.
+A tombstone retains its `createdBy`, where one was
 recorded, so that a deletion replicates together with the attribution of the
 Resource it removes. It also carries as `writerId` the label the deleting
 request declared (see [[[#writer-attribution]]]), if any. Since a deletion is a
