@@ -1949,6 +1949,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   `plaintext.indexes` entry whose already-stored Resources violate the
   claim; the stored declaration is left unchanged (see
   [[[#collection-data-model]]]).
+* [=encryption-history-log-governed=] (409) -- the update carries an
+  `encryption` member on a Collection whose descriptor is governed by its
+  history log; the member is read-only on this path and changes by an append
+  to the log (see [[[#collection-governing-history-log]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
   precondition and the description's current `ETag` does not match it, or an
   `If-None-Match: *` precondition against a Collection that already exists
