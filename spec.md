@@ -1714,6 +1714,11 @@ Collection properties (user-writable):
   here exists because key management is out of this specification's scope, and
   is not a license for such a profile's clients to operate an epoch-less
   descriptor.
+  On a backend advertising `governed-history-logs`, the descriptor MAY instead
+  be governed by the Collection's history log: the server then derives it from
+  the log's head entry, stamps a `history` member on the served value, and
+  refuses a direct write of it with an [=encryption-history-log-governed=]
+  error; see [[[#collection-governing-history-log]]].
 * `plaintext` (optional) - An object declaring the server-side processing the
   server may apply to this collection's Resources. It is the counterpart of
   `encryption`: the two members describe the two ways a server may treat
@@ -1939,6 +1944,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   `plaintext.indexes` entry whose already-stored Resources violate the
   claim; the stored declaration is left unchanged (see
   [[[#collection-data-model]]]).
+* [=encryption-history-log-governed=] (409) -- the update carries an
+  `encryption` member on a Collection whose descriptor is governed by its
+  history log; the member is read-only on this path and changes by an append
+  to the log (see [[[#collection-governing-history-log]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
   precondition and the description's current `ETag` does not match it, or an
   `If-None-Match: *` precondition against a Collection that already exists
@@ -1954,6 +1963,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * On a backend advertising the `key-epochs` feature, the response includes an
   `ETag` header over the description's version, for use with `If-Match` on a
   subsequent update (see [[[#conditional-requests]]])
+* On a Collection governed by its history log, the `encryption` member is
+  derived from the log's head entry and carries a `history` member naming the
+  log (see [[[#collection-governing-history-log]]])
 
 #### (HTTP API) GET `/space/{space_id}/{collection_id}`
 
@@ -2178,7 +2190,9 @@ or -- treating the request as a Resource operation on a reserved id -- with a
 The Collection metadata endpoints are
 OPTIONAL on the same terms as the Resource-level ones; a [=server=] that does
 not implement them SHOULD return an [=unsupported-operation=] (501) error for
-requests to these paths.
+requests to these paths. The same `meta` segment also roots the Collection's
+governing history log, a separate sub-resource at `meta/log` with operations
+and a validator of its own (see [[[#collection-governing-history-log]]]).
 
 The object mirrors the [[[#resource-metadata-data-model]]]: server-managed
 properties at the top level, user-writable properties nested under `custom`,
@@ -2415,6 +2429,307 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   precondition evaluated false; see [[[#conditional-requests]]].
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional Collection metadata endpoints.
+
+### Collection Governing History Log {#collection-governing-history-log}
+
+A Collection MAY carry one **governing history log**: an append-only,
+client-written log that the server stores at the sub-path
+`/space/{space_id}/{collection_id}/meta/log` and from whose head entry the
+server derives a member of the Collection Description. The clients that
+share the Collection write the log and read it. The server stores it, checks
+a minimal line contract on every write, and serves the derived member to
+every reader. Which members a log governs, what an entry is beyond its
+`state`, and how a reader verifies the log are defined by a **governing
+profile**, not by this specification. The `encryption` descriptor of the
+[[[#collection-data-model]]] is the first governed member, under the
+resource log profile of [[WAS-EC]]; see
+[[[#governed-encryption-descriptor]]].
+
+Support is OPTIONAL and discoverable. A backend that implements the
+sub-resource advertises the `governed-history-logs` token in its Backend
+description (see [[[#backend-data-model]]]). A server without the feature
+serves a client-written member instead, so a producer MUST consult the token
+before choosing which form to write. A [=server=] that does not implement the
+sub-resource SHOULD return an [=unsupported-operation=] (501) error for
+requests to its path, and MUST NOT treat them as Resource operations (the
+path lies under the reserved `meta` segment; see
+[[[#collection-level-reserved-endpoints]]]).
+
+#### The sub-resource {#governing-log-sub-resource}
+
+The log is a sub-resource of the Collection, addressed beside its Metadata
+object under the reserved `meta` segment. It is neither a Resource of the
+Collection nor a member of the Metadata object:
+
+* It does not appear in the Collection listing
+  ([[[#list-collection-operation]]]) or in the `changes` query profile's feed
+  ([[[#query-profile-registry]]]).
+* It is exempt from the encrypted-Collection envelope rule
+  ([[[#encryption-scheme-registry]]]): the log is plaintext JSON Lines on an
+  encrypted Collection too.
+* It is not part of the `/meta` body. A Read Collection Metadata response
+  does not include it, and an Update Collection Metadata write does not touch
+  it.
+* It carries a validator of its own (see [[[#governing-log-versioning]]]),
+  independent of the Metadata object's and every Resource's.
+* It is created and deleted with the Collection. Deleting the Collection
+  removes the log, and a Collection later re-created under the same id
+  starts with no log.
+
+Authorization follows the Collection. The log is readable under any
+capability whose `invocationTarget` covers the Collection URL, so a share
+grantee or an app reads it with the capability it already holds; a read is
+also served where the Collection's access-control [=policy=] grants reads. A
+write requires a capability that allows the [=PUT=] action at the log's URL;
+a policy grants no writes to it. As everywhere in this specification, a
+caller that is not authorized receives the merged [=not-found=] (404), per
+[[[#error-handling]]].
+
+#### Line contract {#governing-log-line-contract}
+
+The log body is JSON Lines [[JSON-LINES]]: one JSON object per line, lines
+separated by U+000A LINE FEED, with an optional trailing line feed. The whole
+of what a server requires of the content is:
+
+* each line is a JSON object carrying a `state` member whose value is a JSON
+  object;
+* the last line is the **head** entry, whose `state` is the current state of
+  what the log governs;
+* the first (genesis) line MAY carry a string `parameters.method`, the log
+  format identifier the derived member's `history.method` echoes.
+
+A server MUST refuse a write whose body breaks this contract with an
+[=invalid-request-body=] (400) error: an empty body, a line that is not a
+JSON object, a line without an object `state`, or a blank line other than the
+trailing line feed. A server MUST NOT require anything else of a line.
+Proofs, hash chaining, the `type` of a `state`, and any member name reserved
+inside `state` are defined by the governing profile (for the resource log
+format, [[WAS-EC]]) and are not checked here. The server stores the log; it
+does not verify it.
+
+#### Declaration and the derived member {#governing-log-declaration}
+
+The guarded create of the log is the declaration. A `PUT` to the sub-resource
+carrying `If-None-Match: *` (see [[[#conditional-requests]]]) on a Collection
+that has no log makes the Collection **log-governed**. Nothing is added to
+the Collection Description, and a Collection stays governed until it is
+deleted.
+
+From that write on, the server derives the governed member from the head
+entry: the served value is the head's `state` with one member stamped on,
+
+```json
+"history": {
+  "method": "<the genesis entry's parameters.method>",
+  "resource": "<the absolute URL of the log>"
+}
+```
+
+Where the genesis entry carries no `parameters.method`, the server serves
+the head `state` without `history`. The derived member appears wherever the
+Collection Description is served; the stored Description holds no copy of
+it. Derivation is last-line parsing, so the derived member is exactly what a
+verifying reader computes from the head after stripping `history`.
+
+A direct write of a governed member through the
+[[[#update-or-create-by-id-collection-operation]]] MUST be refused; the
+member is read-only on that path, and the Description's other members update
+normally. For the `encryption` descriptor the refusal is
+[=encryption-history-log-governed=] (409).
+
+Declaring governance on a Collection whose Description already holds a
+client-written value of the governed member MUST be refused. There is no
+conversion between the two forms in this version: a Collection is
+provisioned in one form or the other. For the `encryption` descriptor the
+refusal is [=encryption-immutable=] (409).
+
+#### Trust {#governing-log-trust}
+
+The log is the only authoritative serving of what it governs. The derived
+member is a projection the server computes by parsing the head line, for its
+own checks and for readers that do not verify; the server verifies neither
+entry proofs nor the chain. A verifying reader reads the log, verifies it
+under the governing profile, and compares the derived member to the verified
+head's `state` after stripping `history`. A derived member that differs is a
+stale projection, and the reader acts on the verified head instead (for the
+resource log format, the equality check of [[WAS-EC]]).
+
+#### Versioning {#governing-log-versioning}
+
+The log carries its own monotonic version, exposed as a strong `ETag`
+validator on read, on the same terms as the Collection Metadata object (see
+[[[#collection-metadata-versioning]]]). A server implementing the
+sub-resource MUST maintain it, MUST honor `If-Match` and `If-None-Match: *`
+on write, evaluated atomically with the write, and does so regardless of the
+`conditional-writes` backend feature. A log that does not exist has no
+validator, and `If-None-Match: *` succeeds exactly then. Because a log write
+changes the derived member, it also advances the Collection Description's
+validator: a client holding the Description's `ETag` sees the change on its
+next conditional read. A Collection re-created under the same id restarts
+the log's version, so a client MUST NOT compare validators across a delete
+and re-create.
+
+#### The first governed member: `encryption` {#governed-encryption-descriptor}
+
+The `encryption` descriptor (see [[[#collection-data-model]]]) is the first,
+and in this version the only, member a profile governs. On a log-governed
+Collection the head entry's `state` is an encryption descriptor, and the
+Collection is an encrypted Collection from the declaration onward: the
+envelope rule applies to its Resources and its Metadata object, and the
+`plaintext` member is excluded, exactly as when the descriptor is written on
+the Description. The profile's `state` carries a `type` member naming its
+schema ([[WAS-EC]]); the server stores it with the rest of the state and
+does not interpret it.
+
+On every log write the server runs, on the head `state`, the same checks the
+[[[#update-or-create-by-id-collection-operation]]] runs on a supplied
+descriptor: the shape validation of [[[#key-epoch-server-validation]]] and
+the scheme recognition rule of [[[#encryption-scheme-registry]]]. On an
+append it also runs the transition invariants against the prior head's
+`state`: `epochs` is append-only, `currentEpoch` never moves backwards,
+`hmac` is permanent once present, and the descriptor's `scheme` and
+`version` are set-once, version-monotonic. A violating write MUST be refused
+with the error the Update Collection operation raises for the same change,
+and MUST leave the log unchanged. This is the one clause of this mechanism
+that is specific to encryption; a later governed member adds its own.
+
+### Read Governing History Log Operation {#read-governing-history-log-operation}
+
+#### (HTTP API) GET `/space/{space_id}/{collection_id}/meta/log`
+
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must
+    either: be signed by the space's [=controller=], or invoke a delegated
+    capability that allows the [=GET=] action whose target covers the
+    Collection URL
+* Returns the log body verbatim, as `text/jsonl`, with an `ETag` header over
+  the log's version (see [[[#governing-log-versioning]]])
+* A request carrying `If-None-Match` with the current validator is answered
+  `304 Not Modified` with the `ETag` and no body (see [[[#caching]]])
+
+Example request:
+
+```http
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta/log HTTP/1.1
+Host: example.com
+Accept: text/jsonl
+Authorization: ...
+```
+
+Example success response (one entry per line; the entry members beyond
+`state` are the governing profile's):
+
+```http
+HTTP/1.1 200 OK
+Content-type: text/jsonl
+ETag: "z3fkq.2"
+
+{"versionId":"1-...","versionTime":"2026-09-07T10:00:00Z","parameters":{"method":"resource-log:0.1","scid":"z..."},"state":{"type":"WasEpochConfiguration","scheme":"edv","currentEpoch":"urn:uuid:8d3f...","epochs":[...]},"proof":[...]}
+{"versionId":"2-...","versionTime":"2026-09-08T09:30:00Z","parameters":{},"state":{"type":"WasEpochConfiguration","scheme":"edv","currentEpoch":"urn:uuid:c17a...","epochs":[...]},"proof":[...]}
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Collection does not exist, it carries no log, or
+  the caller has missing or insufficient authorization; per
+  [[[#error-handling]]] a log the caller is not authorized to read is
+  indistinguishable from one that does not exist.
+* [=unsupported-operation=] (501) -- the server does not implement the
+  optional governing history log.
+
+### Write Governing History Log Operation {#write-governing-history-log-operation}
+
+The body of a write is the whole log. A client appends by sending the stored
+bytes verbatim followed by the new line, under an `If-Match` precondition
+carrying the validator of the log it read. A client creates the log, and so
+declares the Collection governed, with `If-None-Match: *`. A client MUST
+carry one of the two preconditions on every write. A server evaluates the
+precondition it is given atomically with the write. On a Collection that
+already carries a log, a server MUST also check, atomically with the write,
+that the body fast-forwards the stored log: the stored bytes verbatim
+followed by exactly one new line. A body the stored log is not a prefix of
+(a stale read, or a rewritten prefix) MUST be refused with a
+[=precondition-failed=] error (412), whether or not the write carries
+`If-Match`; a body that extends the stored bytes by no line or by several
+MUST be refused with an [=invalid-request-body=] error (400). A write
+capability can therefore add to a log but not erase or rewrite it. The
+server also checks the line contract and, for a governed `encryption`
+descriptor, the head-state transition
+([[[#governed-encryption-descriptor]]]). It verifies nothing inside an
+appended entry: a bad proof or a broken hash link is a chain break that a
+verifying reader detects under the governing profile.
+
+#### (HTTP API) PUT `/space/{space_id}/{collection_id}/meta/log`
+
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must
+    either: be signed by the space's [=controller=], or invoke a delegated
+    capability that allows the [=PUT=] action whose target covers the log's
+    URL
+* The request body is the whole log as `text/jsonl`
+* Carries `If-None-Match: *` (guarded create, the declaration) or
+  `If-Match: "<etag>"` (compare-and-swap append); see
+  [[[#conditional-requests]]]
+* Does not create a Collection: a write to the log path of a nonexistent
+  Collection returns a [=not-found=] (404) error
+* Returns a `204` success response, with an `ETag` header carrying the log's
+  new validator
+
+Example request (the guarded create, with a genesis entry):
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta/log HTTP/1.1
+Host: example.com
+Content-Type: text/jsonl
+If-None-Match: *
+Authorization: ...
+
+{"versionId":"1-...","versionTime":"2026-09-07T10:00:00Z","parameters":{"method":"resource-log:0.1","scid":"z..."},"state":{"type":"WasEpochConfiguration","scheme":"edv","currentEpoch":"urn:uuid:8d3f...","epochs":[...]},"proof":[...]}
+```
+
+Example success response:
+
+```http
+HTTP/1.1 204 No Content
+ETag: "z3fkq.1"
+```
+
+From this point the Collection Description's `encryption` member reads as
+the entry's `state` plus `history`:
+
+```json
+"encryption": {
+  "type": "WasEpochConfiguration",
+  "scheme": "edv",
+  "currentEpoch": "urn:uuid:8d3f...",
+  "epochs": [...],
+  "history": {
+    "method": "resource-log:0.1",
+    "resource": "https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta/log"
+  }
+}
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Collection does not exist (this operation does
+  not create one), or the caller has missing or insufficient authorization,
+  per [[[#error-handling]]].
+* [=invalid-request-body=] (400) -- the body breaks the line contract
+  ([[[#governing-log-line-contract]]]); or, for a governed `encryption`
+  descriptor, the head `state` is malformed or the append violates an epoch
+  invariant, as the Update Collection operation would report it.
+* [=unsupported-encryption-scheme=] (400) -- the head `state` declares a
+  `scheme` (or a `version` of one) the server does not recognize.
+* [=encryption-immutable=] (409) -- the guarded create targets a Collection
+  whose Description already holds a client-written `encryption` descriptor;
+  or the append changes the `scheme`, moves the `version` backward, or
+  changes or drops the `hmac` member.
+* [=precondition-failed=] (412) -- an `If-Match` / `If-None-Match: *`
+  precondition evaluated false: another writer appended first, or the log
+  already exists; see [[[#conditional-requests]]].
+* [=unsupported-operation=] (501) -- the server does not implement the
+  optional governing history log.
 
 ## Resources and Blobs {#resources-and-blobs}
 
@@ -3596,6 +3911,11 @@ Backend description properties:
     Description writes (`ETag` / `If-Match`), i.e. the server affordances
     [[[#key-epochs]]] requires. Clients gate recipient-management UX on this
     token.
+  - `governed-history-logs` - the backend stores a Collection's governing
+    history log at its `meta/log` sub-resource and derives the governed
+    member of the Collection Description from the log's head (see
+    [[[#collection-governing-history-log]]]). A producer consults this token
+    to learn whether to write the log or the member itself.
 
 Each token names something the **server** must actively do. Note that
 client-side encryption is deliberately **not** a backend feature: an encrypted
@@ -4094,6 +4414,7 @@ corresponding reserved segments.
 | `/space/{space_id}/{collection_id}/backend`  | `backend`        | Storage backend selected            |
 | `/space/{space_id}/{collection_id}/linkset`  | `linkset`        | Links to auxiliary resources        |
 | `/space/{space_id}/{collection_id}/meta`     | `meta`           | Collection metadata (server-managed and user-writable); see [[[#collection-metadata-data-model]]] |
+| `/space/{space_id}/{collection_id}/meta/log` | `meta`           | Governing history log, a sub-resource under the `meta` segment; see [[[#collection-governing-history-log]]] |
 | `/space/{space_id}/{collection_id}/query`    | `query`          | Query resources within a collection (see [[[#query-profile-registry]]]) |
 | `/space/{space_id}/{collection_id}/quota`    | `quota`          | Storage quota report for collection |
 
@@ -4443,6 +4764,12 @@ already carries one:
   descriptor that lacks it is not a server-side violation; whether a client
   may do so is a matter for the client-side profile (see
   [[[#blinding-key-member]]]).
+
+On a Collection whose descriptor is governed by its history log (see
+[[[#collection-governing-history-log]]]), the descriptor is not supplied on
+an update; it is the `state` of the log's head entry. The shape validation
+above then runs on the head `state` of every log write, and the invariants
+run on each append against the prior head's `state`, with the same errors.
 
 Beyond this shape validation and these invariants the server MUST NOT
 interpret the members. In particular it MUST NOT attempt to check that the
@@ -5107,6 +5434,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
 | `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor; or it tried to change the `id` or `type` of the descriptor's `hmac` member, or remove that member. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources, and replacing or dropping the blinding key would orphan every blinded index. See [[[#collection-data-model]]] and [[[#blinding-key-member]]]. |
+| `https://wallet.storage/spec#encryption-history-log-governed` | <dfn id="encryption-history-log-governed">encryption-history-log-governed</dfn> | 409            | A Collection update carried an `encryption` member on a Collection whose descriptor is governed by its history log. The member is read-only on the Description: it is derived from the log's head entry, and changes by an append to the log at the Collection's `meta/log` sub-resource. See [[[#collection-governing-history-log]]]. |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A write into an encrypted Collection -- a Resource's content, or the `custom` object of a Resource's or the Collection's own Metadata -- had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
 | `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
@@ -5316,6 +5644,21 @@ Content-type: application/problem+json
 {
   "type": "https://wallet.storage/spec#encryption-immutable",
   "title": "Collection encryption descriptor is immutable."
+}
+```
+
+[=encryption-history-log-governed=] -- a Collection update carried an
+`encryption` member on a Collection whose descriptor is governed by its
+history log; append to the log instead (see
+[[[#collection-governing-history-log]]]):
+
+```http
+HTTP/1.1 409 Conflict
+Content-type: application/problem+json
+
+{
+  "type": "https://wallet.storage/spec#encryption-history-log-governed",
+  "title": "Collection encryption descriptor is governed by its history log."
 }
 ```
 
