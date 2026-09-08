@@ -972,8 +972,28 @@ silently clobber one another:
   the `key-epochs` feature MUST evaluate it atomically with the write and
   reject a stale validator with a [=precondition-failed=] error (412). The
   Update and Create responses carry the new `ETag`.
+* The Update (or Create by Id) Collection request MAY carry
+  `If-None-Match: *`, the create-if-absent form. A server advertising the
+  `conditional-writes` feature MUST evaluate it atomically with the write and
+  reject it with [=precondition-failed=] (412) when a Collection Description
+  already exists under that id, whether or not that description carries an
+  `ETag`. Two clients that both read the description, find it absent, and
+  `PUT` a create would otherwise let the loser's full replacement overwrite
+  the winner's (dropping, for example, its `backend`).
 * `If-Match` is opt-in: an unconditional PUT remains valid (and remains
   last-writer-wins). Recipient-management clients MUST use `If-Match`.
+
+The **Space Description** carries the same validator, on the same terms: the
+Read Space response includes an `ETag` header over the description's
+monotonic version, the Update (or Create by Id) Space request MAY carry
+`If-Match` or `If-None-Match: *`, and a server advertising the
+`conditional-writes` feature MUST evaluate either atomically with the write
+and reject a failed precondition with [=precondition-failed=] (412). The
+Create Space and Update Space responses carry the new `ETag`. The
+create-if-absent form is what lets two clients provisioning the same Space at
+once resolve the race at the server: the loser's replacement `PUT` would
+otherwise rewrite the winner's `type` array, which a server accepts at
+creation only (see [[[#space-data-model]]]).
 
 <div class="ednote">
 Authorization for recipient changes is the plain Collection-update capability
@@ -1267,12 +1287,26 @@ Space properties automatically added by the server:
   documents). See section [[[#space-linkset]]].
   Note that this is one of the [[[#space-level-reserved-endpoints]]].
 
+A server that supports conditional writes (see [[[#conditional-requests]]])
+also keeps a server-managed version validator for each Space Description: an
+opaque strong validator that changes on every write of the description and
+is never reused after the Space is deleted. It is not a member of the Space
+Description object; it is surfaced only as the `ETag` header of the Read Space
+response and of the Create Space and Update Space responses, and consumed only
+through the `If-Match` and `If-None-Match: *` preconditions of the Update (or
+Create by Id) Space operation.
+
 ### Read Space operation {#read-space-operation}
 
 * Requires appropriate authorization (root zcap invoked by the space's controller,
   or a zcap granting permission to read a particular space)
 * Returns the details for the specified space `id`
 * Only includes the resources the requester is authorized to see
+* On a server supporting conditional writes, the response includes an `ETag`
+  header over the Space Description's version, for use with `If-Match` on a
+  subsequent update (see [[[#conditional-requests]]]); a request carrying an
+  `If-None-Match` that covers it is answered `304 Not Modified` with the
+  `ETag` and no body (see [[[#caching]]])
 
 The format of the response is determined based on content negotiation;
 `application/json` is the REQUIRED baseline (see
@@ -1294,6 +1328,7 @@ Example success response:
 ```http
 HTTP/1.1 200 OK
 Content-type: application/json
+ETag: "z3fkq.2"
 
 {
   "id": "81246131-69a4-45ab-9bff-9c946b59cf2e",
@@ -1353,6 +1388,18 @@ acceptance as one set at creation (see
 an optional method MUST resolve and verify before it is stored, and a server
 MAY admit such controllers only through this operation.
 
+The request MAY carry a precondition (see [[[#conditional-requests]]]):
+`If-Match: "<etag>"` performs the update only if the Space Description's
+current `ETag` matches it, and `If-None-Match: *` performs the write only if
+no Space Description exists under that id yet. A server that supports
+conditional writes MUST evaluate the precondition atomically with the write,
+after authorization, and answer a failed one with [=precondition-failed=]
+(412). Both are opt-in: an unconditional `PUT` remains valid and remains
+last-writer-wins. A client that creates a Space it has just read as absent
+SHOULD send `If-None-Match: *` and, on a 412, re-read the Space instead of
+treating the response as a failure. The success response carries the
+description's new `ETag`.
+
 #### (HTTP API) PUT `/space/{space_id}`
 
 Note that this is a _full_ update (partial updates via http `PATCH` verb might
@@ -1387,6 +1434,7 @@ Example success response:
 HTTP/1.1 201 Created
 Content-type: application/json
 Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e
+ETag: "z3fkq.1"
 ```
 
 Example request (updating the `name` property of a space). Note that
@@ -1412,6 +1460,7 @@ Example success response:
 
 ```http
 HTTP/1.1 204 No Content
+ETag: "z3fkq.2"
 ```
 
 Errors (see [[[#error-type-registry]]] for canonical examples):
@@ -1424,6 +1473,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   `{space_id}` in the request URL; or the proposed `controller` is a DID of a
   method the server does not accept, or one that does not resolve and verify
   (see [[[#setting-a-controller-to-optional-did-method]]]).
+* [=precondition-failed=] (412) -- the request carried an `If-Match` that
+  does not match the description's current `ETag`, or an `If-None-Match: *`
+  against a Space that already exists (see [[[#conditional-requests]]]).
 
 ### Delete Space operation {#delete-space-operation}
 
@@ -1836,6 +1888,13 @@ When creating or modifying a Collection via PUT, the client specifies the `id`
 of the Collection. This Collection `id` MUST NOT collide with the list of
 [[[#space-level-reserved-endpoints]]].
 
+The request MAY carry a precondition (see [[[#conditional-requests]]]):
+`If-Match: "<etag>"` performs the update only if the description's current
+`ETag` matches it, and `If-None-Match: *` performs the write only if no
+Collection Description exists under that id yet. A failed precondition is
+[=precondition-failed=] (412); an unconditional `PUT` remains last-writer-wins.
+The success response carries the description's new `ETag`.
+
 #### (HTTP API) PUT `/space/{space_id}/{collection_id}`
 
 Example successful "create" request (note the lack of trailing slash):
@@ -1881,8 +1940,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   claim; the stored declaration is left unchanged (see
   [[[#collection-data-model]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
-  precondition and the description's current `ETag` does not match it (see
-  [[[#conditional-requests]]]).
+  precondition and the description's current `ETag` does not match it, or an
+  `If-None-Match: *` precondition against a Collection that already exists
+  (see [[[#conditional-requests]]]).
 
 ### Get Collection Description operation {#get-collection-description-operation}
 
