@@ -1,6 +1,6 @@
 <div class="remove">
 
-# Wallet Attached Storage v0.4
+# Wallet Attached Storage v0.5
 
 **Abstract:** Wallet Attached Storage is a general purpose permissioned
 storage API -- CRUD over an HTTP hierarchy with object-capability authorization.
@@ -47,11 +47,33 @@ This subsection is non-normative.
   <https://wallet.storage/spec>.
 * **v0.3** (through June 2026) -- Initial incubation at MIT DCC, based on
   implementation experience.
-* **v0.4** (mid-July 2026 - now) -- Migrated to the W3C Credentials Community
-  Group (CCG)'s Capability Based Storage Task Force for further incubation.
-  Goal: updating spec to match deployments and learnings.
-* **v0.5** (tbd) - Goal: Breaking changes, refactoring, community input.
-  Likely pending a rename.
+* **v0.4** (mid-July 2026 - September 2026) -- Migrated to the W3C Credentials
+  Community Group (CCG)'s Capability Based Storage Task Force for further
+  incubation. Goal: updating spec to match deployments and learnings.
+* **v0.5** (September 2026 - now) -- Breaking changes, refactoring, community
+  input. Likely pending a rename. Breaking changes so far:
+  * The description of a container moved to its `meta` sub-resource at every
+    level, and a Collection's description merged with its Metadata object.
+    `GET`/`PUT` at `/space/{space_id}/meta` read and write the
+    [[[#space-metadata-data-model]]]; `GET`/`PUT` at
+    `/space/{space_id}/{collection_id}/meta` read and write the
+    [[[#collection-metadata-data-model]]], which now carries the members the
+    Collection Description used to hold. The term "Collection Description" is
+    retired.
+  * A container URL is canonically written with a trailing slash, and a
+    trailing slash no longer distinguishes two operations (see
+    [[[#reading-this-document]]]).
+  * The Space is an ordinary container: `GET /space/{space_id}/` lists its
+    Collections and `POST /space/{space_id}/` creates one. The
+    `/space/{space_id}/collections/` endpoint is retired; its segment stays
+    reserved.
+
+No stored data moves across the v0.4-to-v0.5 path changes. The durable
+artifacts to audit are capabilities. A delegated capability whose
+`invocationTarget` was a v0.4 description URL with a `PUT` action has no
+meaning under the v0.5 layout and needs re-delegation against the `meta` URL,
+while a capability on a container URL keeps its prefix coverage unchanged. A
+server MAY serve the two route tables together during a transition.
 </div>
 
 ### Reading This Document {#reading-this-document}
@@ -66,12 +88,30 @@ document relies on, so that a section read in isolation is still intelligible.
 The expanded form -- with the `Digest`, `Capability-Invocation`, and `Signature`
 headers -- appears once, in [[[#performing-authorized-api-calls]]].
 
-**A trailing slash means the container.** A path ending in `/` addresses a
-container: `GET` lists its members and `POST` adds a member to it. The same path
-*without* the trailing slash addresses the item itself: `GET` returns that item's
-description, `PUT` creates or replaces it, `DELETE` removes it. So
-`/space/{space_id}/{collection_id}/` is the Collection's member list, while
-`/space/{space_id}/{collection_id}` is the Collection's description.
+**Every path has one canonical form, and a trailing slash marks a container.**
+A container -- a Space or a Collection -- is canonically written with a
+trailing slash, and everything else without one. So
+`/space/{space_id}/{collection_id}/` is the Collection, and
+`/space/{space_id}/{collection_id}/{resource_id}` is a Resource in it. The two
+forms of a path name the same thing. A request to the non-canonical form is not
+a different operation, and a [=server=] SHOULD answer it with a
+`308 Permanent Redirect` to the canonical form. No two paths defined by this
+specification differ only by a trailing slash. Because a signed capability
+invocation covers the request target (see
+[[[#performing-authorized-api-calls]]]), a client that follows such a redirect
+MUST sign again for the new target rather than replay its `Authorization`
+header; sending the canonical form to begin with avoids the round trip.
+
+**A container's description lives at its `meta` sub-resource.** `GET` on a
+container lists its members and `POST` adds one, at every level: a Space's
+members are its Collections, a Collection's are its Resources. What the
+container *is* -- its name, its configuration -- is a separate document one
+segment down, at `meta`: [[[#space-metadata-data-model]]] at
+`/space/{space_id}/meta` and [[[#collection-metadata-data-model]]] at
+`/space/{space_id}/{collection_id}/meta`. The same split holds for a Resource,
+whose content is at its own URL and whose
+[[[#resource-metadata-data-model]]] is at `meta` beneath it. Reading a
+description is therefore always a `GET` of `meta`.
 
 **All examples share one Space.** Every example in this document uses the Space
 id `81246131-69a4-45ab-9bff-9c946b59cf2e` on the host `example.com`. Path
@@ -244,16 +284,14 @@ are supported.
 If not implemented on a server, implies that collections are pre-configured or
 implicit, controlled by the server.
 
-* `POST /space/{space_id}/collections/` -- [[[#create-collection-add-collection-to-a-space-operation]]]
-* `GET /space/{space_id}/collections/` -- [[[#list-all-collections-operation]]]
-* `GET /space/{space_id}/{collection_id}` -- [[[#get-collection-description-operation]]]
-* `PUT /space/{space_id}/{collection_id}` -- [[[#update-or-create-by-id-collection-operation]]]
-* `DELETE /space/{space_id}/{collection_id}` -- [[[#delete-collection-operation]]]
-
-**Collection Metadata Endpoints:**
-
+* `POST /space/{space_id}/` -- [[[#create-collection-add-collection-to-a-space-operation]]]
+* `GET /space/{space_id}/` -- [[[#list-all-collections-operation]]]
 * `GET /space/{space_id}/{collection_id}/meta` -- [[[#read-collection-metadata-operation]]]
-* `PUT /space/{space_id}/{collection_id}/meta` -- [[[#update-collection-metadata-operation]]]
+* `PUT /space/{space_id}/{collection_id}/meta` -- [[[#update-or-create-by-id-collection-operation]]]
+* `DELETE /space/{space_id}/{collection_id}/` -- [[[#delete-collection-operation]]]
+* `GET|PUT /space/{space_id}/{collection_id}/meta/log` --
+  [[[#collection-governing-history-log]]] (available only on a backend
+  advertising `governed-history-logs`)
 
 **Spaces Repository Endpoints -- Manage Spaces on a Server:**
 
@@ -265,9 +303,9 @@ pre-configured and controlled by the server.
 
 **Space Endpoints -- Manage an individual Space:**
 
-* `GET /space/{space_id}` -- [[[#read-space-operation]]]
-* `PUT /space/{space_id}` -- [[[#update-or-create-by-id-space-operation]]]
-* `DELETE /space/{space_id}` -- [[[#delete-space-operation]]]
+* `GET /space/{space_id}/meta` -- [[[#read-space-operation]]]
+* `PUT /space/{space_id}/meta` -- [[[#update-or-create-by-id-space-operation]]]
+* `DELETE /space/{space_id}/` -- [[[#delete-space-operation]]]
 * `POST /space/{space_id}/export` -- **Reserved / not yet specified.** Export
   (download) a Space's contents (all collections and resources).
 * `POST /space/{space_id}/import` -- **Reserved / not yet specified.** Import
@@ -317,7 +355,7 @@ Required if Space endpoints or Collection endpoints are supported.
 
 * `GET /space/{space_id}/backends` -- [[[#space-backends-available]]]
 * `GET /space/{space_id}/{collection_id}/backend` -- [[[#collection-backend-selected]]]
-  (the backend summary is also displayed in the Collection description object)
+  (the backend summary is also displayed in the Collection's Metadata object)
 
 **Quota Endpoints** (see [[[#quotas]]]):
 
@@ -689,8 +727,9 @@ permit. WAS uses the uppercase HTTP method names as its action vocabulary:
 * <dfn id="post-action">`POST`</dfn> -- create a child item in a container (add a
   Resource to a Collection, a Collection to a Space, or a Space to the Spaces
   Repository).
-* <dfn id="put-action">`PUT`</dfn> -- create-by-id or replace a Space,
-  Collection, or Resource.
+* <dfn id="put-action">`PUT`</dfn> -- create-by-id or replace: a Resource at
+  its own URL, or a Space or a Collection through its `meta` sub-resource (see
+  [[[#reading-this-document]]]).
 * <dfn id="delete-action">`DELETE`</dfn> -- delete a Space, Collection, or
   Resource.
 
@@ -750,6 +789,15 @@ The delegated capability is handed to the recipient out of band. The recipient
 invokes it by signing a request with their own key and including the capability
 in the `Capability-Invocation` header.
 
+A [=target=] covers everything beneath it, so the choice of target is what
+attenuates a grant. A capability on a Collection URL, as above, covers the
+Collection's listing, every Resource in it, and its Metadata object -- which is
+what "share this collection" means. To grant the Collection's metadata
+alone, without its Resources, target the `meta` URL instead; that grant also
+covers the governing history log beneath it (see
+[[[#collection-governing-history-log]]]). The same holds one level up for a
+Space.
+
 <div class="ednote">
 **Revocation.** This specification does not yet define a revocation
 operation, although its goals require that a grant can be withdrawn before it
@@ -782,7 +830,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
       "https://wallet.storage/spec#policy": [
         {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
@@ -960,40 +1008,37 @@ already authorized to write the target; an under-authorized caller receives the
 merged [=not-found=] (`404`) instead, per the maximum-privacy rule in
 [[[#error-handling]]].
 
-The mechanism extends to the **Collection Description** itself, whose update
-operation replaces the whole description -- so two concurrent recipient
-changes to a key-epoch roster (see [[[#key-epochs]]]) would otherwise
-silently clobber one another:
+The mechanism extends to a container's **Metadata object**, whose update
+operation replaces the whole object -- so two concurrent recipient changes to
+a key-epoch roster (see [[[#key-epochs]]]) would otherwise silently clobber
+one another:
 
-* The Get Collection Description response includes an `ETag` header -- a
-  strong validator over the description's monotonic version (the same quoted
-  form Resources use).
-* The Update Collection request MAY carry `If-Match`. A server advertising
-  the `key-epochs` feature MUST evaluate it atomically with the write and
-  reject a stale validator with a [=precondition-failed=] error (412). The
-  Update and Create responses carry the new `ETag`.
-* The Update (or Create by Id) Collection request MAY carry
-  `If-None-Match: *`, the create-if-absent form. A server advertising the
-  `conditional-writes` feature MUST evaluate it atomically with the write and
-  reject it with [=precondition-failed=] (412) when a Collection Description
-  already exists under that id, whether or not that description carries an
-  `ETag`. Two clients that both read the description, find it absent, and
-  `PUT` a create would otherwise let the loser's full replacement overwrite
-  the winner's (dropping, for example, its `backend`).
+* The [[[#read-collection-metadata-operation]]] response includes an `ETag`
+  header -- a strong validator over the object's `metaVersion` (the same
+  quoted form Resources use).
+* The [[[#update-or-create-by-id-collection-operation]]] request MAY carry
+  `If-Match`. A server implementing the operation MUST evaluate it atomically
+  with the write and reject a stale validator with a [=precondition-failed=]
+  error (412). The Update and Create responses carry the new `ETag`.
+* That request MAY instead carry `If-None-Match: *`, the create-if-absent
+  form, which succeeds only when the Collection does not exist. Two clients
+  that both read the object, find the Collection absent, and `PUT` a create
+  would otherwise let the loser's full replacement overwrite the winner's
+  (dropping, for example, its `backend`).
 * `If-Match` is opt-in: an unconditional PUT remains valid (and remains
   last-writer-wins). Recipient-management clients MUST use `If-Match`.
 
-The **Space Description** carries the same validator, on the same terms: the
-Read Space response includes an `ETag` header over the description's
-monotonic version, the Update (or Create by Id) Space request MAY carry
-`If-Match` or `If-None-Match: *`, and a server advertising the
-`conditional-writes` feature MUST evaluate either atomically with the write
-and reject a failed precondition with [=precondition-failed=] (412). The
+The **Space Metadata object** carries the same validator, on the same terms:
+the [[[#read-space-operation]]] response includes an `ETag` header over the
+object's monotonic version, the [[[#update-or-create-by-id-space-operation]]]
+request MAY carry `If-Match` or `If-None-Match: *`, and a server advertising
+the `conditional-writes` feature MUST evaluate either atomically with the
+write and reject a failed precondition with [=precondition-failed=] (412). The
 Create Space and Update Space responses carry the new `ETag`. The
 create-if-absent form is what lets two clients provisioning the same Space at
 once resolve the race at the server: the loser's replacement `PUT` would
 otherwise rewrite the winner's `type` array, which a server accepts at
-creation only (see [[[#space-data-model]]]).
+creation only (see [[[#space-metadata-data-model]]]).
 
 <div class="ednote">
 Authorization for recipient changes is the plain Collection-update capability
@@ -1001,17 +1046,13 @@ in this version. A dedicated action for recipient management (a policy
 operation, distinct from content writes) remains an open question.
 </div>
 
-The [Collection Metadata object](#collection-metadata-data-model)
-carries a validator of its own on the same pattern, mutually independent of
-both the Collection Description's and every Resource's: its `metaVersion`
-changes only on Collection metadata writes, never on a Collection Description
-update or a Resource write (and vice versa). Like the Collection Description
-validator, it is not gated on the `conditional-writes` backend feature: a
-server implementing the Collection metadata endpoints MUST maintain it and
-MUST support `If-Match` and `If-None-Match: *` on the
-[[[#update-collection-metadata-operation]]], evaluated atomically with the
-write. A Metadata object that has never been written has no validator, and
-`If-None-Match: *` succeeds exactly then.
+A Collection's `metaVersion` is independent of every Resource's validator:
+writing a Resource never advances it, and writing the Metadata object never
+advances a Resource's. Unlike the Resource-level validators it is not gated on
+the `conditional-writes` backend feature -- a server implementing the
+Collection management operations MUST maintain it and MUST support both
+preconditions -- and it covers configuration and annotation writes alike; see
+[[[#collection-metadata-versioning]]].
 
 A `412` arises only from an explicit `If-Match` / `If-None-Match`
 precondition header. It is deliberately distinct from the header-less `409`
@@ -1102,7 +1143,7 @@ Example success response:
 ```http
 HTTP/1.1 201 Created
 Content-type: application/json
-Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e
+Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/
 
 {
   "id": "81246131-69a4-45ab-9bff-9c946b59cf2e",
@@ -1159,7 +1200,7 @@ body* -- the Space does not exist yet, so there is no stored controller to
 verify against. A server that instead treats `POST /spaces/` as
 create-or-replace turns this operation into a takeover: any caller able to
 construct a valid invocation for their *own* `controller` could overwrite an
-existing Space's description (controller included) simply by POSTing its
+existing Space's Metadata object (controller included) simply by POSTing its
 `id`. Servers MUST check for an existing Space with the supplied `id`, and
 reject with [=id-conflict=], before writing anything.
 
@@ -1218,7 +1259,7 @@ Content-type: application/json
   "items": [
     {
       "id": "81246131-69a4-45ab-9bff-9c946b59cf2e",
-      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e"
+      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/"
     }
   ]
 }
@@ -1249,7 +1290,23 @@ a volume of storage that contains one or more collections.
 Conceptually, is maps to a disk partition (for file systems), or a database
 (for relational databases).
 
-### Space Data Model {#space-data-model}
+### Space Metadata Data Model {#space-metadata-data-model}
+
+A Space's description is its **Metadata object**, addressable at the reserved
+`meta` path segment under the Space URL (one of the
+[[[#space-level-reserved-endpoints]]]). It is what
+[[[#read-space-operation]]] returns and what
+[[[#update-or-create-by-id-space-operation]]] writes; the Space URL itself is
+the container of the Space's Collections (see
+[[[#list-all-collections-operation]]]).
+
+Because the `meta` segment occupies the `{collection_id}` position, `meta` is a
+reserved Collection id: creating a Collection with the id `meta` is a
+[=reserved-id=] conflict (see [[[#reserved-path-segment-registry]]]).
+
+`PUT` is not defined at the Space URL itself; the replacement write is a `PUT`
+of this object. A server SHOULD answer a `PUT` at the Space URL with
+`405 Method Not Allowed`.
 
 `Space` properties:
 
@@ -1279,31 +1336,31 @@ Space properties automatically added by the server:
   space need not be the party that controls it. Recording it is OPTIONAL, so a
   client MUST treat an absent `createdBy` as "not recorded" rather than as an
   assertion that the space has no creator.
-* `url` - A relative URL to the space's description resource.
-  Added by the server, used in the Space Description object as well as
-  the [[[#list-spaces-operation]]] result.
+* `url` - A relative URL to the space itself, in canonical (trailing-slash)
+  form. Added by the server, used in the Space Metadata object as well as
+  the [[[#list-spaces-operation]]] result. The Metadata object's own URL is
+  this value followed by `meta`.
 * `linkset` - A relative URL to a resource which contains
   a set of links to auxiliary resources (such as to access control policy
   documents). See section [[[#space-linkset]]].
   Note that this is one of the [[[#space-level-reserved-endpoints]]].
 
 A server that supports conditional writes (see [[[#conditional-requests]]])
-also keeps a server-managed version validator for each Space Description: an
-opaque strong validator that changes on every write of the description and
+also keeps a server-managed version validator for each Space Metadata object:
+an opaque strong validator that changes on every write of the object and
 is never reused after the Space is deleted. It is not a member of the Space
-Description object; it is surfaced only as the `ETag` header of the Read Space
+Metadata object; it is surfaced only as the `ETag` header of the Read Space
 response and of the Create Space and Update Space responses, and consumed only
 through the `If-Match` and `If-None-Match: *` preconditions of the Update (or
 Create by Id) Space operation.
 
 ### Read Space operation {#read-space-operation}
 
+* Returns the [[[#space-metadata-data-model]]] for the specified space `id`
 * Requires appropriate authorization (root zcap invoked by the space's controller,
   or a zcap granting permission to read a particular space)
-* Returns the details for the specified space `id`
-* Only includes the resources the requester is authorized to see
 * On a server supporting conditional writes, the response includes an `ETag`
-  header over the Space Description's version, for use with `If-Match` on a
+  header over the Space Metadata object's version, for use with `If-Match` on a
   subsequent update (see [[[#conditional-requests]]]); a request carrying an
   `If-None-Match` that covers it is answered `304 Not Modified` with the
   `ETag` and no body (see [[[#caching]]])
@@ -1312,12 +1369,12 @@ The format of the response is determined based on content negotiation;
 `application/json` is the REQUIRED baseline (see
 [[[#content-types-and-representations]]]).
 
-#### (HTTP API) GET `/space/{space_id}`
+#### (HTTP API) GET `/space/{space_id}/meta`
 
 Example request:
 
 ```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e HTTP/1.1
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/meta HTTP/1.1
 Host: example.com
 Accept: application/json
 Authorization: ...
@@ -1332,7 +1389,7 @@ ETag: "z3fkq.2"
 
 {
   "id": "81246131-69a4-45ab-9bff-9c946b59cf2e",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
   "type": ["Space"],
   "name": "Example space #1",
   "controller": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
@@ -1351,8 +1408,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 ### Update (or Create by Id) Space operation {#update-or-create-by-id-space-operation}
 
-When creating or modifying a Space via PUT, the client specifies the `id`
-of the Space.
+A `PUT` of a Space's Metadata object is a full replacement of that object, and
+creates the Space when none exists under that `id`. The client specifies the
+`id` of the Space in the request URL.
 
 * Requires appropriate authorization (root zcap invoked by the space's
   controller, or a zcap granting permission to write to a particular space)
@@ -1375,11 +1433,12 @@ body's `controller` reopens the takeover described under
 [[[#create-space-errors]]]: any caller could seize an existing Space by
 PUTting its `id` with themselves as the `controller`.
 
-A server that records `createdBy` (see [[[#space-data-model]]]) sets it only on
-the `PUT` that creates the Space, to the [=did=] of the party that invoked the
-capability -- which is not necessarily the body's `controller`. On a `PUT` that
-updates an existing Space, the stored `createdBy` is preserved, so transferring
-the Space by writing a new `controller` does not rewrite its creator.
+A server that records `createdBy` (see [[[#space-metadata-data-model]]]) sets
+it only on the `PUT` that creates the Space, to the [=did=] of the party that
+invoked the capability -- which is not necessarily the body's `controller`. On
+a `PUT` that updates an existing Space, the stored `createdBy` is preserved, so
+transferring the Space by writing a new `controller` does not rewrite its
+creator.
 
 A new `controller` written by an update is subject to the same method
 acceptance as one set at creation (see
@@ -1389,18 +1448,18 @@ an optional method MUST resolve and verify before it is stored, and a server
 MAY admit such controllers only through this operation.
 
 The request MAY carry a precondition (see [[[#conditional-requests]]]):
-`If-Match: "<etag>"` performs the update only if the Space Description's
+`If-Match: "<etag>"` performs the update only if the Space Metadata object's
 current `ETag` matches it, and `If-None-Match: *` performs the write only if
-no Space Description exists under that id yet. A server that supports
+no Space exists under that id yet. A server that supports
 conditional writes MUST evaluate the precondition atomically with the write,
 after authorization, and answer a failed one with [=precondition-failed=]
 (412). Both are opt-in: an unconditional `PUT` remains valid and remains
 last-writer-wins. A client that creates a Space it has just read as absent
 SHOULD send `If-None-Match: *` and, on a 412, re-read the Space instead of
-treating the response as a failure. The success response carries the
-description's new `ETag`.
+treating the response as a failure. The success response carries the Metadata
+object's new `ETag`.
 
-#### (HTTP API) PUT `/space/{space_id}`
+#### (HTTP API) PUT `/space/{space_id}/meta`
 
 Note that this is a _full_ update (partial updates via http `PATCH` verb might
 be supported later). However, some fields cannot be updated (like `id`) and so
@@ -1411,10 +1470,10 @@ Note that this operation is idempotent.
 * When creating a space via PUT, a `controller` property is required in the PUT
   request body.
 
-Example request (creating a new space via PUT), note the lack of trailing slash:
+Example request (creating a new space via PUT):
 
 ```http
-PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e HTTP/1.1
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/meta HTTP/1.1
 Host: example.com
 Accept: application/json
 Content-type: application/json
@@ -1428,12 +1487,13 @@ Authorization: ...
 }
 ```
 
-Example success response:
+Example success response. The `Location` header names the Space that was
+created, not the Metadata object that was written:
 
 ```http
 HTTP/1.1 201 Created
 Content-type: application/json
-Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e
+Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/
 ETag: "z3fkq.1"
 ```
 
@@ -1442,7 +1502,7 @@ server-managed properties such as `url` and `linkset` are not client-writable
 and are omitted from the request body:
 
 ```http
-PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e HTTP/1.1
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/meta HTTP/1.1
 Host: example.com
 Content-type: application/json
 Accept: application/json
@@ -1474,8 +1534,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   method the server does not accept, or one that does not resolve and verify
   (see [[[#setting-a-controller-to-optional-did-method]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match` that
-  does not match the description's current `ETag`, or an `If-None-Match: *`
-  against a Space that already exists (see [[[#conditional-requests]]]).
+  does not match the Metadata object's current `ETag`, or an
+  `If-None-Match: *` against a Space that already exists (see
+  [[[#conditional-requests]]]).
 
 ### Delete Space operation {#delete-space-operation}
 
@@ -1485,12 +1546,12 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   in it
 * This operation is idempotent
 
-#### (HTTP API) DELETE `/space/{space_id}`
+#### (HTTP API) DELETE `/space/{space_id}/`
 
 Example request (no request body):
 
 ```http
-DELETE /space/81246131-69a4-45ab-9bff-9c946b59cf2e HTTP/1.1
+DELETE /space/81246131-69a4-45ab-9bff-9c946b59cf2e/ HTTP/1.1
 Host: example.com
 Accept: application/json
 Authorization: ...
@@ -1522,8 +1583,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * Since Collection's `name` property is optional, default it to be the same
   value as `id` when `name` is missing. (The name is intended to drive UIs, so
   defaulting to `id` simplifies consuming client logic.)
-* Each listed item carries the Collection's `id`, `url`, and `name`. A server
-  MAY additionally surface a `public` member on each item: a boolean indicating
+* Each listed item carries the Collection's `id`, `url`, and `name` -- a
+  projection of the Collection's Metadata object (see
+  [[[#collection-metadata-data-model]]]). A server MAY additionally surface a
+  `public` member on each item: a boolean indicating
   whether a `PublicCanRead` access control policy (see
   [[[#access-control-policies]]]) is attached to that Collection. It is surfaced
   inline so that a listing consumer need not issue one policy probe per item to
@@ -1537,12 +1600,12 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   [[[#access-control-policies]]]).
 * MAY be paginated (see [[[#pagination]]])
 
-#### (HTTP API) GET `/space/{space_id}/collections/`
+#### (HTTP API) GET `/space/{space_id}/`
 
-Example request (note the trailing slash):
+Example request (a container URL, so it carries the trailing slash):
 
 ```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/collections/ HTTP/1.1
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/ HTTP/1.1
 Host: example.com
 Accept: application/json
 Authorization: ...
@@ -1555,18 +1618,18 @@ HTTP/1.1 200 OK
 Content-type: application/json
 
 {
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/collections/",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
   "totalItems": 2,
   "items": [
     {
       "id": "example",
-      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/example",
+      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/example/",
       "name": "Example Collection",
       "public": false
     },
     {
       "id": "73WakrfVbNJBaAmhQtEeDv",
-      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
+      "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
       "name": "73WakrfVbNJBaAmhQtEeDv",
       "public": true
     }
@@ -1601,9 +1664,40 @@ that motivate nesting (e.g., "all comments on a post") are better served by the
 `query` endpoint with field-based filtering.
 </div>
 
-### Collection Data Model {#collection-data-model}
+### Collection Metadata Data Model {#collection-metadata-data-model}
 
-Collection properties (user-writable):
+A Collection's description is its **Metadata object**, addressable at the
+reserved `meta` path segment under the Collection URL (one of the
+[[[#collection-level-reserved-endpoints]]]). It holds everything recorded about
+the Collection: what it is called, how its Resources are stored and whether
+they are client-side encrypted, who created it, and whatever annotations the
+user keeps on it. The Collection URL itself is the container of the
+Collection's Resources (see [[[#list-collection-operation]]]).
+
+Because the `meta` segment occupies the `{resource_id}` position, `meta` is a
+reserved Resource id: creating a Resource with the id `meta` is a
+[=reserved-id=] conflict (see [[[#reserved-path-segment-registry]]]). A `GET`
+or `PUT` at this path is therefore always a Collection metadata operation, and
+the [=reserved-id=] rejection arises where a Resource id is supplied
+explicitly, as in a `POST` body's `id`. Methods this specification does not
+define at this path (`DELETE` in particular) are not Resource operations
+either: a server MAY answer them with `405 Method Not Allowed`, or -- treating
+the request as a Resource operation on a reserved id -- with a [=reserved-id=]
+(409) error, but MUST NOT let them act on a stored Resource. The same `meta`
+segment also roots the Collection's governing history log, a separate
+sub-resource at `meta/log` with operations and a validator of its own (see
+[[[#collection-governing-history-log]]]).
+
+`PUT` is not defined at the Collection URL itself; the replacement write is a
+`PUT` of this object. A server SHOULD answer a `PUT` at the Collection URL with
+`405 Method Not Allowed`.
+
+Reading and writing this object are part of the OPTIONAL Collection management
+group (see [[[#api-summary]]]): on a server where Collections are
+pre-configured or implicit, they are not implemented, and such a server SHOULD
+answer requests to this path with an [=unsupported-operation=] (501) error.
+
+Writable properties:
 
 * `id` - A unique collection identifier (within a given space). Created by the
   server if not provided. Note: the `{collection_id}` template parameter used in
@@ -1672,8 +1766,8 @@ Collection properties (user-writable):
   MUST NOT interpret the descriptor beyond validating its shape -- it never holds key
   material and stores the descriptor opaquely. Its purpose is discovery: any
   authorized reader (including a delegated consumer that did not create the
-  collection) learns from the Collection Description that the collection is
-  encrypted, and decrypts with its own keys. The descriptor is **set-once,
+  collection) learns from the Collection's Metadata object that the collection
+  is encrypted, and decrypts with its own keys. The descriptor is **set-once,
   version-monotonic**: a server
   MUST allow declaring it on a collection that lacks one (e.g. migrating a
   pre-existing collection), provided no `plaintext` member is present (the
@@ -1723,11 +1817,11 @@ Collection properties (user-writable):
 * `plaintext` (optional) - An object declaring the server-side processing the
   server may apply to this collection's Resources. It is the counterpart of
   `encryption`: the two members describe the two ways a server may treat
-  what it stores, and a Collection Description MUST NOT carry both. The
+  what it stores, and a Collection's Metadata object MUST NOT carry both. The
   exclusion is by presence. An empty `plaintext` object still excludes
   `encryption`, and a server MUST reject a create or update whose resulting
-  description would carry both with an [=invalid-request-body=] error. A
-  description carrying neither member is a [=plaintext collection=] with no
+  object would carry both with an [=invalid-request-body=] error. A
+  Collection carrying neither member is a [=plaintext collection=] with no
   server-side processing declared. Unlike the set-once `encryption`,
   `plaintext` is updatable for the collection's life: a supplied object
   replaces the stored one, an update that omits the member leaves the stored
@@ -1776,54 +1870,152 @@ Collection properties (user-writable):
     MUST NOT require the already-stored Resources to be rewritten for the
     change to take effect.
 
-Collection properties automatically added by the server:
+* `custom` (optional) - A JSON object holding the user's annotations, with the
+  same shape as the Resource-level `custom` (see
+  [[[#resource-metadata-data-model]]]): an optional human-readable `name` and
+  an optional `tags` object of string-valued annotations. A Collection with no
+  annotations set MAY omit `custom` or report it as `{}`. A Collection
+  therefore has two name slots. The top-level `name` above is server-visible
+  plaintext and is what listings report; `custom.name` is supplementary. On an
+  encrypted Collection the two trade places: a client SHOULD leave the
+  plaintext `name` unpopulated, so that a listing defaulting a missing `name`
+  to the `id` reveals nothing (see [[[#list-all-collections-operation]]]), and
+  `custom.name` inside the encrypted envelope is then the only name the
+  Collection has.
+* `epoch` (optional) - The key-epoch `id` this object's `custom` envelope was
+  encrypted under (see [[[#key-epochs]]]), declared by the writer and stored
+  opaquely; the server never computes or verifies it. Its omission rule
+  deliberately inverts the Resource-level one: an omitted `epoch` on a write of
+  this object clears the stored value, where at Resource level it is preserved.
+  The Resource-level `epoch` describes the content write, which a write of this
+  object does not touch, so preserving it there is correct; here the only thing
+  `epoch` can describe is the `custom` envelope itself, which every write
+  replaces wholesale, so a preserved value would misdescribe the new envelope.
+  A client writing to an encrypted Collection therefore re-declares `epoch`
+  each time.
 
+Properties automatically added by the server, and read-only: a server MUST
+ignore any of them supplied in a request body.
+
+* `createdAt` (optional) - The [[RFC3339]] `date-time` at which the Collection
+  was created.
+* `updatedAt` (optional) - The [[RFC3339]] `date-time` at which this Metadata
+  object was last modified.
 * `createdBy` (optional) - The [=did=] of the party whose capability invocation
   created the collection, on the same terms as a Space's `createdBy` (see
-  [[[#space-data-model]]]): recorded on the first write, preserved by later
-  writes, read-only, and OPTIONAL.
-* `url` - A relative URL to the collection's description resource.
-  Added by the server, used in the Collection Description object as well as
-  the List Collections operations result.
+  [[[#space-metadata-data-model]]]): recorded on the first write, preserved by
+  later writes, and OPTIONAL.
+* `url` - A relative URL to the collection itself, in canonical
+  (trailing-slash) form. Added by the server, used in this object as well as
+  the List Collections operations result. This object's own URL is that value
+  followed by `meta`.
 * `linkset` - A relative URL to a resource which contains
   a set of links to auxiliary resources (such as to access control policy
   documents). See section [[[#collection-linkset]]].
   Note that this is one of the [[[#collection-level-reserved-endpoints]]].
 
-Each Collection also has an associated Metadata object, distinct from this
-Collection Description -- server-managed properties (optional timestamps and
-`createdBy`) plus user-writable ones (`name` and `tags`, nested under
-`custom`) -- addressable at the reserved `meta` path segment under the
-Collection URL. See [[[#collection-metadata-data-model]]].
+There is no `writerId` member. A Collection's Metadata object is configuration
+maintained by the Space [=controller=], not replicated per-revision content, so
+the attribution machinery of [[[#writer-attribution]]] does not apply at this
+level.
 
-Example collection (JSON representation):
+On a Collection that declares an `encryption` descriptor (see
+[[[#encryption-scheme-registry]]]), `custom` is stored **encrypted**, exactly
+as at Resource level: its value is an envelope of the Collection's declared
+scheme, validated structurally on write (rejecting a plaintext `custom` with an
+[=encryption-scheme-mismatch=]) and never decrypted by the server, while every
+other member of this object stays plaintext. This is what gives an encrypted
+Collection a client-encrypted display name and tags, and a discoverable,
+conditionally-writable home for profile-level configuration such as the
+[[WAS-EC]] blinded-index schema. One consequence: on an encrypted Collection
+every write of this object MUST carry a conforming envelope as its `custom`, so
+the plaintext clearing convention (a `PUT` with no `custom`) is unavailable --
+the cleared state is instead an envelope encrypting an empty object.
+
+Example Metadata object of a plaintext Collection (JSON representation):
 
 ```json
 {
   "id": "73WakrfVbNJBaAmhQtEeDv",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
   "type": ["Collection"],
   "name": "Verifiable Credentials Collection",
+  "createdAt": "2026-06-10T09:12:00Z",
+  "updatedAt": "2026-06-12T13:25:00Z",
   "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
   "generator": "did:key:z6MkfriqYRX3JBqzsbVbKuBUxDR2nsjLTu6AbrxJZAmFmXWb",
   "generatorOrigin": "https://app.example.com",
-  "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset"
+  "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset",
+  "custom": {
+    "tags": { "project": "demo" }
+  }
 }
 ```
 
+#### Versioning {#collection-metadata-versioning}
+
+The Metadata object carries a monotonic version, `metaVersion`, surfaced as a
+strong `ETag` validator on read. It is the Collection's one validator: it
+covers configuration and annotation writes alike, so a change to `backend` and
+a change to `custom` advance the same counter. (The name is the same one the
+[`changes` query profile](#query-profile-changes) reports per Resource; this is
+its Collection-scoped counterpart.) It is independent of every Resource's
+validator -- writing a Resource never advances it, and writing this object
+never advances a Resource's -- and of the governing history log's, which
+versions its own sub-resource (see [[[#governing-log-versioning]]]).
+
+A server implementing these operations MUST maintain the version and MUST honor
+`If-Match` and `If-None-Match: *` preconditions on the update, evaluated
+atomically with the write; see [[[#conditional-requests]]]. The version is
+surfaced only as the `ETag`: it is not a member of the object's JSON
+representation. Because the object exists exactly as long as its Collection
+does, `If-None-Match: *` here means "write only if the Collection does not
+exist" -- the create-if-absent precondition of
+[[[#update-or-create-by-id-collection-operation]]].
+
+Carrying configuration and annotation on one validator means a configuration
+change invalidates an in-flight annotation write. That is intended. A change to
+`encryption` requires the `custom` envelope to be re-sealed in any case, and
+for anything else the client re-reads and retries. A client that wants to
+update `custom` alone still resends the configuration members it just read,
+because `PUT` is a full replacement.
+
+Writes of this object are invisible to replication: the
+[`changes` query profile](#query-profile-changes) is per-Resource and emits no
+entry for them, so a client mirroring the object re-reads it and compares the
+returned `ETag`.
+
+#### Lifecycle {#collection-metadata-lifecycle}
+
+The Metadata object and its Collection share one lifecycle. The object comes
+into existence with the Collection, written by the `POST` or `PUT` that creates
+it, and there is no state in which a Collection exists without one: a `GET` of
+`meta` on an existing Collection always succeeds and always carries an `ETag`.
+
+There is no `DELETE` at `meta`. Deleting the Collection removes its Metadata
+object with it. To clear the user's annotations alone, send a `PUT` carrying
+the configuration members unchanged and an empty `custom` object, or none at
+all (on an encrypted Collection the cleared state is instead an envelope
+encrypting an empty object, as above). Clearing is itself a write and advances
+`metaVersion`. A Collection later re-created under the same id starts over: its
+`metaVersion` restarts, so a client MUST NOT compare validators across a delete
+and a re-create.
+
 ### Create Collection (Add Collection to a Space) operation {#create-collection-add-collection-to-a-space-operation}
 
-When a Collection is created via a `POST`, the client can specify the `id` of
-the Collection. If the `id` is not specified, one is auto-generated by the
-server and returned as part of the `Location` response header.
+A Collection is added to a Space by `POST`ing its Metadata object (see
+[[[#collection-metadata-data-model]]]) to the Space. The client can specify the
+`id` of the Collection in the body. If the `id` is not specified, one is
+auto-generated by the server and returned as part of the `Location` response
+header.
 
-#### (HTTP API) POST `/space/{space_id}/collections/`
+#### (HTTP API) POST `/space/{space_id}/`
 
 Example request (`id` not specified, auto-generated by the server and returned
 in the response `Location` header):
 
 ```http
-POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/collections/ HTTP/1.1
+POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/ HTTP/1.1
 Host: example.com
 Content-Type: application/json
 Authorization: ...
@@ -1843,13 +2035,13 @@ Example response:
 ```http
 HTTP/1.1 201 Created
 Content-type: application/json
-Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/21f81693-f4a3-4caa-b81c-b663d6e1e3ae
+Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/21f81693-f4a3-4caa-b81c-b663d6e1e3ae/
 ```
 
 Example request, a valid `id` specified in the body:
 
 ```http
-POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/collections/ HTTP/1.1
+POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/ HTTP/1.1
 Host: example.com
 Content-Type: application/json
 Authorization: ...
@@ -1867,7 +2059,7 @@ Example response:
 ```http
 HTTP/1.1 201 Created
 Content-type: application/json
-Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/credentials
+Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/credentials/
 ```
 
 Errors (see [[[#error-type-registry]]] for canonical examples):
@@ -1886,27 +2078,96 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=invalid-request-body=] (400) -- the `encryption` descriptor's key-epoch
   or `hmac` members are malformed (see [[[#key-epochs]]]); or the body
   carries both `plaintext` and `encryption`, or a malformed `plaintext`
-  member (see [[[#collection-data-model]]]).
+  member (see [[[#collection-metadata-data-model]]]).
 
-### Update (or Create By Id) Collection operation {#update-or-create-by-id-collection-operation}
+### Read Collection Metadata operation {#read-collection-metadata-operation}
 
-When creating or modifying a Collection via PUT, the client specifies the `id`
-of the Collection. This Collection `id` MUST NOT collide with the list of
-[[[#space-level-reserved-endpoints]]].
+* Returns the [[[#collection-metadata-data-model]]] for the specified Collection
+* Requires appropriate authorization
+  - For example, when using [=zCaps=] for authorization, the request must be
+    signed by the space's [=controller=], or invoke a delegated capability that
+    allows the [=GET=] action
+* The response includes an `ETag` header over the object's `metaVersion`, for
+  use with `If-Match` on a subsequent update (see [[[#conditional-requests]]]);
+  a request carrying an `If-None-Match` that covers it is answered
+  `304 Not Modified` with the `ETag` and no body (see [[[#caching]]])
+* On a Collection governed by its history log, the `encryption` member is
+  derived from the log's head entry and carries a `history` member naming the
+  log (see [[[#collection-governing-history-log]]])
 
-The request MAY carry a precondition (see [[[#conditional-requests]]]):
-`If-Match: "<etag>"` performs the update only if the description's current
-`ETag` matches it, and `If-None-Match: *` performs the write only if no
-Collection Description exists under that id yet. A failed precondition is
-[=precondition-failed=] (412); an unconditional `PUT` remains last-writer-wins.
-The success response carries the description's new `ETag`.
+#### (HTTP API) GET `/space/{space_id}/{collection_id}/meta`
 
-#### (HTTP API) PUT `/space/{space_id}/{collection_id}`
-
-Example successful "create" request (note the lack of trailing slash):
+Example request:
 
 ```http
-PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv HTTP/1.1
+GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta HTTP/1.1
+Host: example.com
+Accept: application/json
+Authorization: ...
+```
+
+Example response:
+
+```http
+HTTP/1.1 200 OK
+Content-type: application/json
+ETag: "3"
+
+{
+  "id": "73WakrfVbNJBaAmhQtEeDv",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
+  "type": ["Collection"],
+  "name": "Verifiable Credentials Collection",
+  "createdAt": "2026-06-10T09:12:00Z",
+  "updatedAt": "2026-06-12T13:25:00Z",
+  "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
+  "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset",
+  "backend": { "id": "default" },
+  "custom": {
+    "tags": { "project": "demo" }
+  }
+}
+```
+
+Errors (see [[[#error-type-registry]]] for canonical examples):
+
+* [=not-found=] (404) -- the Collection does not exist, or the caller has
+  missing or insufficient authorization; per [[[#error-handling]]] a Collection
+  the caller is not authorized to read is indistinguishable from one that does
+  not exist.
+* [=unsupported-operation=] (501) -- the server does not implement the optional
+  Collection management operations.
+
+### Update (or Create by Id) Collection operation {#update-or-create-by-id-collection-operation}
+
+A `PUT` of a Collection's Metadata object is a full replacement of that object,
+and creates the Collection when none exists under that `id`. The client
+specifies the `id` of the Collection in the request URL; it MUST NOT collide
+with the list of [[[#space-level-reserved-endpoints]]].
+
+Full replacement means that a writable member the request omits is cleared, so
+a client that wants to change one member reads the object, edits it, and writes
+it back. Two members qualify that rule. The server-managed members are
+read-only: a server MUST ignore `createdAt`, `updatedAt`, `createdBy`, `url`,
+and `linkset` in a request body, so that a read-modify-write roundtrip needs no
+stripping. And on a Collection whose `encryption` descriptor is governed by its
+history log, the server derives that member from the log's head and refuses a
+direct write of it (see [[[#collection-governing-history-log]]]).
+
+The request MAY carry a precondition (see [[[#conditional-requests]]]):
+`If-Match: "<etag>"` performs the write only if the object's current `ETag`
+matches it, and `If-None-Match: *` performs the write only if the Collection
+does not exist yet. A failed precondition is [=precondition-failed=] (412); an
+unconditional `PUT` remains last-writer-wins. The success response carries the
+object's new `ETag`.
+
+#### (HTTP API) PUT `/space/{space_id}/{collection_id}/meta`
+
+Example successful "create" request. A `PUT` that creates the Collection and a
+`PUT` that reconfigures an existing one are the same operation:
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta HTTP/1.1
 Host: example.com
 Content-Type: application/json
 Authorization: ...
@@ -1919,12 +2180,48 @@ Authorization: ...
 }
 ```
 
+The `Location` header names the Collection that was created, not the Metadata
+object that was written:
+
 ```http
 HTTP/1.1 201 Created
+Location: https://example.com/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/
+ETag: "1"
+```
+
+Example request annotating an existing Collection. The configuration members
+are resent unchanged, because this is a full replacement, and the `If-Match`
+precondition makes the write conditional on nothing else having changed in the
+meantime:
+
+```http
+PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta HTTP/1.1
+Host: example.com
+Content-Type: application/json
+If-Match: "1"
+Authorization: ...
+
+{
+  "id": "73WakrfVbNJBaAmhQtEeDv",
+  "name": "Verifiable Credentials Collection",
+  "type": ["Collection"],
+  "backend": { "id": "default" },
+  "custom": {
+    "tags": { "project": "demo" }
+  }
+}
+```
+
+```http
+HTTP/1.1 204 No Content
+ETag: "2"
 ```
 
 Errors (see [[[#error-type-registry]]] for canonical examples):
 
+* [=not-found=] (404) -- the caller has missing or insufficient authorization,
+  per [[[#error-handling]]]. A Collection that does not exist is created by
+  this operation rather than being an error.
 * [=reserved-id=] (409) -- the supplied Collection `id` collides with one of the
   [[[#space-level-reserved-endpoints]]] (for example, `collections` or
   `linkset`).
@@ -1934,9 +2231,12 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   [[[#collection-data-model]]]). Also raised when the update changes the `id`
   or `type` of the descriptor's `hmac` member, or removes that member; the
   blinding key is permanent once present (see [[[#blinding-key-member]]]).
-* [=invalid-request-body=] (400) -- the descriptor's key-epoch or `hmac`
-  members are malformed, or the update violates a server-side invariant on
-  the epoch members (`epochs` append-only, `currentEpoch` never moving
+* [=invalid-request-body=] (400) -- the request body is not a JSON object,
+  the descriptor's key-epoch or `hmac` members are malformed, a top-level `epoch` member is present
+  but is not a non-empty string, the
+  `custom` object (or a property within it) does not have the shape described in
+  [[[#collection-metadata-data-model]]], or the update violates a server-side
+  invariant on the epoch members (`epochs` append-only, `currentEpoch` never moving
   backwards); see [[[#key-epochs]]]. Also raised when the resulting
   description would carry both `plaintext` and `encryption` (whichever of
   the two the update adds), or when the supplied `plaintext` member is
@@ -1948,63 +2248,22 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=id-conflict=] (409) -- the update adds `unique: true` to a
   `plaintext.indexes` entry whose already-stored Resources violate the
   claim; the stored declaration is left unchanged (see
-  [[[#collection-data-model]]]).
+  [[[#collection-metadata-data-model]]]).
 * [=encryption-history-log-governed=] (409) -- the update carries an
   `encryption` member on a Collection whose descriptor is governed by its
   history log; the member is read-only on this path and changes by an append
   to the log (see [[[#collection-governing-history-log]]]).
+* [=encryption-scheme-mismatch=] (422) -- on an encrypted Collection, the
+  request's `custom` is not a conforming envelope of the Collection's declared
+  scheme (including the case of an omitted `custom`, since an encrypted
+  Collection's annotations cannot be cleared to a plaintext state; see
+  [[[#collection-metadata-data-model]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
-  precondition and the description's current `ETag` does not match it, or an
+  precondition and the object's current `ETag` does not match it, or an
   `If-None-Match: *` precondition against a Collection that already exists
   (see [[[#conditional-requests]]]).
-
-### Get Collection Description operation {#get-collection-description-operation}
-
-* Returns the Collection description object
-* Requires appropriate authorization
-  - For example, when using [=zCaps=] for authorization, the request must be
-    signed by the space's [=controller=], or invoke a delegated capability that
-    allows the [=GET=] action
-* On a backend advertising the `key-epochs` feature, the response includes an
-  `ETag` header over the description's version, for use with `If-Match` on a
-  subsequent update (see [[[#conditional-requests]]])
-* On a Collection governed by its history log, the `encryption` member is
-  derived from the log's head entry and carries a `history` member naming the
-  log (see [[[#collection-governing-history-log]]])
-
-#### (HTTP API) GET `/space/{space_id}/{collection_id}`
-
-Example request (note: no trailing slash):
-
-```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv HTTP/1.1
-Host: example.com
-Accept: application/json
-Authorization: ...
-```
-
-Example response:
-
-```http
-HTTP/1.1 200 OK
-Content-type: application/json
-
-{
-  "id": "73WakrfVbNJBaAmhQtEeDv",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
-  "name": "Verifiable Credentials Collection",
-  "type": ["Collection"],
-  "linkset": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/linkset",
-  "backend": { "id": "default" }
-}
-```
-
-Errors (see [[[#error-type-registry]]] for canonical examples):
-
-* [=not-found=] (404) -- the Collection does not exist, or the caller has
-  missing or insufficient authorization; per [[[#error-handling]]] a Collection
-  the caller is not authorized to read is indistinguishable from one that does
-  not exist.
+* [=unsupported-operation=] (501) -- the server does not implement the optional
+  Collection management operations.
 
 ### List Collection operation {#list-collection-operation}
 
@@ -2019,7 +2278,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 #### (HTTP API) GET `/space/{space_id}/{collection_id}/`
 
-Example request (note the trailing slash):
+Example request (a container URL, so it carries the trailing slash):
 
 ```http
 GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/ HTTP/1.1
@@ -2036,7 +2295,7 @@ Content-type: application/json
 
 {
   "id": "73WakrfVbNJBaAmhQtEeDv",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
   "name": "Example JSON Documents Collection",
   "type": ["Collection"],
   "totalItems": 2,
@@ -2077,7 +2336,7 @@ Content-type: application/json
 
 {
   "id": "73WakrfVbNJBaAmhQtEeDv",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
   "name": "Example JSON Documents Collection",
   "type": ["Collection"],
   "items": [
@@ -2114,7 +2373,7 @@ Content-type: application/json
 
 {
   "id": "73WakrfVbNJBaAmhQtEeDv",
-  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv",
+  "url": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/",
   "name": "Example JSON Documents Collection",
   "type": ["Collection"],
   "items": [
@@ -2150,7 +2409,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 ### Delete Collection operation {#delete-collection-operation}
 
-#### (HTTP API) DELETE `/space/{space_id}/{collection_id}`
+#### (HTTP API) DELETE `/space/{space_id}/{collection_id}/`
 
 * Requires appropriate authorization
   - For example, when using [=zCaps=] for authorization, the request
@@ -2163,10 +2422,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   request to a collection that does not exist (or has already been deleted)
   results in a 204 success response
 
-Example request (note the lack of trailing slash):
+Example request:
 
 ```http
-DELETE /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv HTTP/1.1
+DELETE /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/ HTTP/1.1
 Host: example.com
 Authorization: ...
 ```
@@ -2176,277 +2435,19 @@ Example success response:
 ```http
 HTTP/1.1 204 No Content
 ```
-
-### Collection Metadata Data Model {#collection-metadata-data-model}
-
-Each Collection has an associated **Metadata object** of its own, addressable
-at the reserved `meta` path segment under the Collection URL (one of the
-[[[#collection-level-reserved-endpoints]]]). Because that segment occupies the
-`{resource_id}` position, `meta` is a reserved Resource id: creating a
-Resource with the id `meta` is a [=reserved-id=] conflict (see
-[[[#reserved-path-segment-registry]]]). A `GET` or `PUT` at this path is
-therefore always the Collection metadata operation, never a Resource
-operation; the [=reserved-id=] rejection arises where a Resource id is
-supplied explicitly, as in a `POST` body's `id`. Methods this specification
-does not define at this path (`DELETE` in particular) are not Resource
-operations either: a server MAY answer them with `405 Method Not Allowed`,
-or -- treating the request as a Resource operation on a reserved id -- with a
-[=reserved-id=] (409) error, but MUST NOT let them act on a stored Resource.
-The Collection metadata endpoints are
-OPTIONAL on the same terms as the Resource-level ones; a [=server=] that does
-not implement them SHOULD return an [=unsupported-operation=] (501) error for
-requests to these paths. The same `meta` segment also roots the Collection's
-governing history log, a separate sub-resource at `meta/log` with operations
-and a validator of its own (see [[[#collection-governing-history-log]]]).
-
-The object mirrors the [[[#resource-metadata-data-model]]]: server-managed
-properties at the top level, user-writable properties nested under `custom`,
-and `epoch` as a writable sibling of `custom`. The differences follow from
-what a Collection is -- a container, not a document. There are no
-`contentType` and `size` properties, because those describe a stored
-representation and a Collection has none.
-
-Server-managed properties (all OPTIONAL):
-
-* `createdAt` (optional) - The [[RFC3339]] `date-time` at which the Metadata
-  object was first written. It describes the Metadata object, not the
-  Collection: a Collection may exist long before its metadata is first
-  written, so `createdAt` here can postdate the Collection's creation by
-  arbitrarily long.
-* `updatedAt` (optional) - The [[RFC3339]] `date-time` at which the Metadata
-  object was last modified.
-* `createdBy` (optional) - The [=did=] of the party whose capability
-  invocation created the **Collection**, on the same terms as the
-  `createdBy` of the [[[#collection-data-model]]] (it is the same value,
-  surfaced here so a metadata read is self-contained). Unlike the
-  timestamps, it describes the Collection rather than the Metadata object,
-  and it is present (when recorded at all) from the Collection's creation
-  onward.
-
-User-writable properties:
-
-* `custom` (optional) - A JSON object holding the user-writable properties,
-  with the same shape as the Resource-level `custom`: an optional
-  human-readable `name` and an optional `tags` object of string-valued
-  annotations. A Metadata object with no user-writable properties set MAY
-  omit `custom` or report it as `{}`. A Collection therefore has two name
-  slots: the `name` of the [[[#collection-data-model]]] is server-visible
-  plaintext and is what listings report, while `custom.name` here is
-  supplementary -- except on an encrypted Collection, where a client SHOULD
-  leave the Description's plaintext `name` unpopulated (a listing that
-  defaults a missing `name` to the `id` then reveals nothing; see
-  [[[#list-all-collections-operation]]]) and `custom.name`, inside the
-  encrypted envelope, is the only name the Collection has.
-* `epoch` (optional) - The key-epoch `id` this Metadata object's `custom`
-  envelope was encrypted under (see [[[#key-epochs]]]), declared by the
-  writer as a top-level member of an Update Collection Metadata request and
-  stored opaquely; the server never computes or verifies it. Its omission
-  rule deliberately inverts the Resource-level one: an omitted `epoch` on
-  a Collection metadata write clears the stored value (at Resource level
-  it is preserved). The Resource-level `epoch` property describes the
-  content write, which a metadata write does not touch, so preserving it is
-  correct; here the only thing `epoch` can describe is the `custom`
-  envelope itself, which every metadata write replaces wholesale, so a
-  preserved value would misdescribe the new envelope. A client writing to
-  an encrypted Collection therefore re-declares `epoch` on every metadata
-  write.
-
-There is no `writerId` member: Collection metadata is configuration
-maintained by the Space [=controller=], not replicated per-revision content,
-so the attribution machinery of [[[#writer-attribution]]] does not apply at
-this level.
-
-On a Collection that declares an `encryption` descriptor (see
-[[[#encryption-scheme-registry]]]), `custom` is stored **encrypted**, exactly
-as at Resource level: its value is an envelope of the Collection's declared
-scheme, validated structurally on write (rejecting a plaintext `custom` with
-an [=encryption-scheme-mismatch=]) and never decrypted by the server, while
-the server-managed properties and `epoch` remain plaintext. This is what
-gives an encrypted Collection a client-encrypted display name and tags, and a
-discoverable, conditionally-writable home for profile-level configuration
-such as the [[WAS-EC]] blinded-index schema. One consequence: on an
-encrypted Collection every metadata write MUST carry a conforming envelope as
-its `custom`, so the plaintext clearing convention (a `PUT` with no `custom`;
-see [[[#collection-metadata-lifecycle]]]) is unavailable -- the cleared state
-is instead an envelope encrypting an empty object.
-
-#### Versioning {#collection-metadata-versioning}
-
-The Metadata object carries its own monotonic version,
-`metaVersion`, independent of both the Collection Description's validator and
-every Resource's: writing one never bumps another. (The name is the same one
-the [`changes` query profile](#query-profile-changes) reports per Resource;
-this is its Collection-scoped counterpart.) A server implementing
-these endpoints MUST maintain it and expose it as a strong `ETag` validator
-on read, and MUST honor `If-Match` / `If-None-Match: *` preconditions on
-update, evaluated atomically with the write; see [[[#conditional-requests]]].
-The version is surfaced only as the `ETag`: it is not a member of the
-Metadata object's JSON representation.
-A Metadata object that has never been written carries no validator (a read
-returns no `ETag`), and `If-None-Match: *` succeeds exactly then -- it is the
-"write only if never written" precondition. This gives a
-read-reconcile-write client (for example, one maintaining the [[WAS-EC]]
-blinded-index schema in this envelope) lost-update protection without
-involving the Collection Description or any Resource. Collection metadata
-writes are, however, invisible to replication: the
-[`changes` query profile](#query-profile-changes) is per-Resource and emits
-no entry for them, so a client mirroring this object re-reads it and
-compares the returned `ETag`.
-
-#### Lifecycle {#collection-metadata-lifecycle}
-
-The Metadata object is created and deleted together with the
-Collection: a `GET` of `/meta` on an existing Collection always succeeds,
-even before the first metadata write (reporting only `createdBy`, when
-recorded -- no timestamps, no `custom`, no `ETag`). There is no
-`DELETE /meta` operation; to clear the user-writable properties, send a `PUT`
-with an empty `custom` object or, on a [=plaintext collection=], an empty
-body object (on an encrypted Collection the cleared state is an envelope
-encrypting an empty object, as above). Clearing is itself a
-write and advances `metaVersion`, so a cleared Metadata object remains
-distinguishable from a never-written one. Deleting the Collection removes
-its Metadata object with it, and a Collection later re-created under the same
-id starts over with never-written metadata -- its `metaVersion` restarts, so
-a client MUST NOT compare validators across a delete and re-create.
-
-### Read Collection Metadata Operation {#read-collection-metadata-operation}
-
-#### (HTTP API) GET `/space/{space_id}/{collection_id}/meta`
-
-* Requires appropriate authorization
-  - For example, when using [=zCaps=] for authorization, the request must
-    either: be signed by the space's [=controller=], or invoke a delegated
-    capability that allows the [=GET=] action
-* When the Metadata object has been written at least once, the response
-  includes an `ETag` header over its `metaVersion`, for use with `If-Match`
-  on a subsequent update (see [[[#conditional-requests]]])
-
-Example request:
-
-```http
-GET /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta HTTP/1.1
-Host: example.com
-Accept: application/json
-Authorization: ...
-```
-
-Example success response:
-
-```http
-HTTP/1.1 200 OK
-Content-type: application/json
-ETag: "2"
-
-{
-  "createdAt": "2026-06-10T09:12:00Z",
-  "updatedAt": "2026-06-12T13:25:00Z",
-  "createdBy": "did:key:z6MkpBMbMaRSv5nsgifRAwEKvHHoiKDMhiAHShTFNmkJNdVW",
-  "custom": {
-    "name": "Verifiable Credentials Collection",
-    "tags": { "project": "demo" }
-  }
-}
-```
-
-Errors (see [[[#error-type-registry]]] for canonical examples):
-
-* [=not-found=] (404) -- the Collection does not exist, or the caller has
-  missing or insufficient authorization; per [[[#error-handling]]] a Metadata
-  object the caller is not authorized to read is indistinguishable from one
-  that does not exist.
-* [=unsupported-operation=] (501) -- the server does not implement the
-  optional Collection metadata endpoints.
-
-### Update Collection Metadata Operation {#update-collection-metadata-operation}
-
-As at Resource level, a `PUT` to the Collection's `/meta` endpoint is a
-_full_ replacement of the Metadata object's `custom` object: the stored
-`custom` object is replaced by the one in the request body, so any
-user-writable property omitted from it is cleared (and, on a
-[=plaintext collection=], a request body with no `custom` property clears
-them all).
-
-The only other writable top-level member is `epoch`, whose omission
-clears the stored stamp (see the [[[#collection-metadata-data-model]]]
-for the rule and its rationale -- this is the inverse of the Resource-level
-behavior). There is no `writerId` member at this level.
-
-Server-managed properties are not affected by this operation; a server MUST
-ignore any top-level properties other than `custom` and `epoch` present in
-the request body (so that a client may read the Metadata object, modify it,
-and `PUT` it back without first stripping the server-managed properties).
-
-A `PUT` to a Collection's `/meta` does not create anything: a Metadata
-object cannot exist apart from its Collection, so a `PUT` to the `/meta`
-path of a nonexistent Collection returns a [=not-found=] (404) error.
-
-#### (HTTP API) PUT `/space/{space_id}/{collection_id}/meta`
-
-* Requires appropriate authorization
-  - For example, when using [=zCaps=] for authorization, the request must
-    either: be signed by the space's [=controller=], or invoke a delegated
-    capability that allows the [=PUT=] action
-* MAY carry an `If-Match` or `If-None-Match: *` precondition against the
-  Metadata object's own validator (see [[[#conditional-requests]]])
-* This operation is idempotent with respect to the stored state (though
-  every accepted write advances the `metaVersion` validator)
-* Returns a `204` success response, with an `ETag` header carrying the new
-  validator
-
-Example request:
-
-```http
-PUT /space/81246131-69a4-45ab-9bff-9c946b59cf2e/73WakrfVbNJBaAmhQtEeDv/meta HTTP/1.1
-Host: example.com
-Content-Type: application/json
-Authorization: ...
-
-{
-  "custom": {
-    "name": "Verifiable Credentials Collection",
-    "tags": { "project": "demo" }
-  }
-}
-```
-
-Example success response:
-
-```http
-HTTP/1.1 204 No Content
-ETag: "3"
-```
-
-Errors (see [[[#error-type-registry]]] for canonical examples):
-
-* [=not-found=] (404) -- the Collection does not exist (this operation does
-  not create one), or the caller has missing or insufficient authorization,
-  per [[[#error-handling]]].
-* [=invalid-request-body=] (400) -- the request body is not a JSON object,
-  the `custom` object (or a property within it) does not have the shape
-  described in [[[#collection-metadata-data-model]]], or a top-level `epoch`
-  member is present but is not a non-empty string.
-* [=encryption-scheme-mismatch=] (422) -- on an encrypted Collection, the
-  request's `custom` is not a conforming envelope of the Collection's
-  declared scheme (including the case of an omitted `custom`, since an
-  encrypted Collection's metadata cannot be cleared to a plaintext state;
-  see [[[#collection-metadata-data-model]]]).
-* [=precondition-failed=] (412) -- an `If-Match` / `If-None-Match: *`
-  precondition evaluated false; see [[[#conditional-requests]]].
-* [=unsupported-operation=] (501) -- the server does not implement the
-  optional Collection metadata endpoints.
 
 ### Collection Governing History Log {#collection-governing-history-log}
 
 A Collection MAY carry one **governing history log**: an append-only,
 client-written log that the server stores at the sub-path
 `/space/{space_id}/{collection_id}/meta/log` and from whose head entry the
-server derives a member of the Collection Description. The clients that
+server derives a member of the Collection's Metadata object. The clients that
 share the Collection write the log and read it. The server stores it, checks
 a minimal line contract on every write, and serves the derived member to
 every reader. Which members a log governs, what an entry is beyond its
 `state`, and how a reader verifies the log are defined by a **governing
 profile**, not by this specification. The `encryption` descriptor of the
-[[[#collection-data-model]]] is the first governed member, under the
+[[[#collection-metadata-data-model]]] is the first governed member, under the
 resource log profile of [[WAS-EC]]; see
 [[[#governed-encryption-descriptor]]].
 
@@ -2472,9 +2473,9 @@ Collection nor a member of the Metadata object:
 * It is exempt from the encrypted-Collection envelope rule
   ([[[#encryption-scheme-registry]]]): the log is plaintext JSON Lines on an
   encrypted Collection too.
-* It is not part of the `/meta` body. A Read Collection Metadata response
-  does not include it, and an Update Collection Metadata write does not touch
-  it.
+* It is not part of the `meta` body. A [[[#read-collection-metadata-operation]]]
+  response does not include it, and an
+  [[[#update-or-create-by-id-collection-operation]]] write does not touch it.
 * It carries a validator of its own (see [[[#governing-log-versioning]]]),
   independent of the Metadata object's and every Resource's.
 * It is created and deleted with the Collection. Deleting the Collection
@@ -2517,7 +2518,7 @@ does not verify it.
 The guarded create of the log is the declaration. A `PUT` to the sub-resource
 carrying `If-None-Match: *` (see [[[#conditional-requests]]]) on a Collection
 that has no log makes the Collection **log-governed**. Nothing is added to
-the Collection Description, and a Collection stays governed until it is
+the Collection's Metadata object, and a Collection stays governed until it is
 deleted.
 
 From that write on, the server derives the governed member from the head
@@ -2532,17 +2533,17 @@ entry: the served value is the head's `state` with one member stamped on,
 
 Where the genesis entry carries no `parameters.method`, the server serves
 the head `state` without `history`. The derived member appears wherever the
-Collection Description is served; the stored Description holds no copy of
+Metadata object is served; the stored object holds no copy of
 it. Derivation is last-line parsing, so the derived member is exactly what a
 verifying reader computes from the head after stripping `history`.
 
 A direct write of a governed member through the
 [[[#update-or-create-by-id-collection-operation]]] MUST be refused; the
-member is read-only on that path, and the Description's other members update
+member is read-only on that path, and the object's other members update
 normally. For the `encryption` descriptor the refusal is
 [=encryption-history-log-governed=] (409).
 
-Declaring governance on a Collection whose Description already holds a
+Declaring governance on a Collection whose Metadata object already holds a
 client-written value of the governed member MUST be refused. There is no
 conversion between the two forms in this version: a Collection is
 provisioned in one form or the other. For the `encryption` descriptor the
@@ -2568,21 +2569,20 @@ sub-resource MUST maintain it, MUST honor `If-Match` and `If-None-Match: *`
 on write, evaluated atomically with the write, and does so regardless of the
 `conditional-writes` backend feature. A log that does not exist has no
 validator, and `If-None-Match: *` succeeds exactly then. Because a log write
-changes the derived member, it also advances the Collection Description's
-validator: a client holding the Description's `ETag` sees the change on its
-next conditional read. A Collection re-created under the same id restarts
-the log's version, so a client MUST NOT compare validators across a delete
-and re-create.
+changes the derived member, it also advances the Collection's `metaVersion`: a
+client holding that `ETag` sees the change on its next conditional read. A
+Collection re-created under the same id restarts the log's version, so a client
+MUST NOT compare validators across a delete and re-create.
 
 #### The first governed member: `encryption` {#governed-encryption-descriptor}
 
-The `encryption` descriptor (see [[[#collection-data-model]]]) is the first,
-and in this version the only, member a profile governs. On a log-governed
+The `encryption` descriptor (see [[[#collection-metadata-data-model]]]) is the
+first, and in this version the only, member a profile governs. On a log-governed
 Collection the head entry's `state` is an encryption descriptor, and the
 Collection is an encrypted Collection from the declaration onward: the
 envelope rule applies to its Resources and its Metadata object, and the
 `plaintext` member is excluded, exactly as when the descriptor is written on
-the Description. The profile's `state` carries a `type` member naming its
+the Metadata object. The profile's `state` carries a `type` member naming its
 schema ([[WAS-EC]]); the server stores it with the rest of the state and
 does not interpret it.
 
@@ -2699,7 +2699,7 @@ HTTP/1.1 204 No Content
 ETag: "z3fkq.1"
 ```
 
-From this point the Collection Description's `encryption` member reads as
+From this point the Collection Metadata object's `encryption` member reads as
 the entry's `state` plus `history`:
 
 ```json
@@ -2827,9 +2827,9 @@ body; the response `Content-Type` and `Content-Length` correspond to the
 `contentType` and `size` properties of the Resource's Metadata object (see
 [[[#resource-metadata-data-model]]]).
 
-**Description objects.** API documents generated by the server -- Space and
-Collection descriptions, listings, quota reports, Metadata objects -- MUST be
-available as `application/json`. Linkset documents use
+**Server-generated documents.** API documents generated by the server --
+Metadata objects, listings, quota reports -- MUST be available as
+`application/json`. Linkset documents use
 `application/linkset+json` [[RFC9264]], and error responses use
 `application/problem+json` [[RFC9457]] (see [[[#error-handling]]]). Other
 representations of these documents (negotiated via `Accept`) MAY be offered
@@ -2913,7 +2913,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   cannot use the `409` to probe a Collection for existing Resource ids.
   Also raised when the write's extracted value for a `unique: true`
   [=plaintext index=] is already held by a different Resource in the
-  Collection (see [[[#collection-data-model]]]).
+  Collection (see [[[#collection-metadata-data-model]]]).
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
@@ -3053,8 +3053,8 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   missing target.
 * [=id-conflict=] (409) -- the write's extracted value for a `unique: true`
   [=plaintext index=] is already held by a different Resource in the
-  Collection (see [[[#collection-data-model]]]). Checked only after the
-  caller's authorization has been verified, and atomically with the write.
+  Collection (see [[[#collection-metadata-data-model]]]). Checked only after
+  the caller's authorization has been verified, and atomically with the write.
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
@@ -3243,8 +3243,8 @@ neither can substitute for the other:
 These two leave room for a third, distinct axis: a client-asserted identity
 -- a property whose value is a [=did=] the controller writes and maintains
 about another party. The Collection-level `generator` property (see
-[[[#collection-data-model]]]), naming the application a Collection was
-provisioned for, is this axis. Unlike `writerId` it is an
+[[[#collection-metadata-data-model]]]), naming the application a Collection
+was provisioned for, is this axis. Unlike `writerId` it is an
 identity claim and a stable join key; unlike `createdBy` it is a controller
 assertion rather than a server-verified fact, and a reader treats it as
 exactly that.
@@ -3713,8 +3713,8 @@ mechanism entirely and remain conformant; see [[[#scope-and-conformance-profiles
 Linksets (from [[RFC9264]]) serve as the main feature detection and extension
 mechanism. They can be discovered, via the `linkset` property, from the following:
 
-* The Space Description object, see [[[#space-data-model]]].
-* The Collection Description object, see [[[#collection-data-model]]].
+* The Space Metadata object, see [[[#space-metadata-data-model]]].
+* The Collection Metadata object, see [[[#collection-metadata-data-model]]].
 
 ### Space Linkset {#space-linkset}
 
@@ -3752,7 +3752,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/",
       "https://wallet.storage/spec#policy": [
         {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/policy",
@@ -3814,7 +3814,7 @@ Content-type: application/linkset+json
 {
   "linkset": [
     {
-      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages",
+      "anchor": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/",
       "https://wallet.storage/spec#policy": [
         {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/policy",
@@ -3911,14 +3911,15 @@ Backend description properties:
     `query` endpoint (see [[[#query-profile-registry]]]).
   - `chunked-streams` - the backend supports chunk addressing for large blobs
     (see [[[#chunked-resources]]]).
-  - `key-epochs` - the backend persists the Resource `epoch` stamp, serves it
-    on metadata/listing/feed reads, and enforces conditional Collection
-    Description writes (`ETag` / `If-Match`), i.e. the server affordances
-    [[[#key-epochs]]] requires. Clients gate recipient-management UX on this
-    token.
+  - `key-epochs` - the backend persists the Resource `epoch` stamp and serves
+    it on metadata, listing, and feed reads, i.e. the server affordances
+    [[[#key-epochs]]] requires beyond the conditional writes on a Collection's
+    Metadata object that every implementation of the Collection management
+    operations supports (see [[[#collection-metadata-versioning]]]). Clients
+    gate recipient-management UX on this token.
   - `governed-history-logs` - the backend stores a Collection's governing
     history log at its `meta/log` sub-resource and derives the governed
-    member of the Collection Description from the log's head (see
+    member of the Collection's Metadata object from the log's head (see
     [[[#collection-governing-history-log]]]). A producer consults this token
     to learn whether to write the log or the member itself.
 
@@ -3930,8 +3931,9 @@ is encrypted varies _per Collection_ on the very same backend. Encryption is
 therefore a property of a Collection's data (signaled at the Collection level
 and held in the client's keys), not a capability of the backend. Concretely,
 this signal is the Collection's optional `encryption` descriptor (see
-[[[#collection-data-model]]]): a non-secret declaration any authorized reader
-discovers from the Collection Description, while the keys stay in the client.
+[[[#collection-metadata-data-model]]]): a non-secret declaration any authorized
+reader discovers from the Collection's Metadata object, while the keys stay in
+the client.
 
 A backend that advertises `conditional-writes` takes on the server-side half of
 the client contract in [[[#conditional-requests]]]. It MAY derive the `ETag`
@@ -3999,8 +4001,8 @@ Content-type: application/json
 ### Collection Backend Selected {#collection-backend-selected}
 
 Each collection has an optional `backend` property that is set during its creation
-(see [[[#collection-data-model]]]). If not specified, it is assumed to have the
-`id` of `default`. The selected backend is discoverable via the
+(see [[[#collection-metadata-data-model]]]). If not specified, it is assumed to
+have the `id` of `default`. The selected backend is discoverable via the
 [=backend relation=] in the collection's linkset (see
 [[[#collection-linkset]]]).
 
@@ -4393,9 +4395,10 @@ collections `id`s MUST NOT collide with the corresponding reserved segments.
 
 | Reserved API Endpoint           | Reserved segment | Purpose                                |
 |---------------------------------|------------------|----------------------------------------|
+| `/space/{space_id}/meta`        | `meta`           | Space metadata; see [[[#space-metadata-data-model]]] |
 | `/space/{space_id}/policy`      | `policy`         | Access control policy                  |
 | `/space/{space_id}/backends`    | `backends`       | Storage backends available             |
-| `/space/{space_id}/collections` | `collections`    | List and create collections            |
+| `/space/{space_id}/collections` | `collections`    | Retired in v0.5. Listing and creating collections moved to the Space URL (see [[[#list-all-collections-operation]]]); a server MAY answer this path with a `308 Permanent Redirect` to it. The segment stays reserved |
 | `/space/{space_id}/export`      | `export`         | Export (download) space contents       |
 | `/space/{space_id}/import`      | `import`         | Import (upload) a space export archive |
 | `/space/{space_id}/linkset`     | `linkset`        | Links to auxiliary resources           |
@@ -4418,7 +4421,7 @@ corresponding reserved segments.
 | `/space/{space_id}/{collection_id}/policy`   | `policy`         | Access control policy               |
 | `/space/{space_id}/{collection_id}/backend`  | `backend`        | Storage backend selected            |
 | `/space/{space_id}/{collection_id}/linkset`  | `linkset`        | Links to auxiliary resources        |
-| `/space/{space_id}/{collection_id}/meta`     | `meta`           | Collection metadata (server-managed and user-writable); see [[[#collection-metadata-data-model]]] |
+| `/space/{space_id}/{collection_id}/meta`     | `meta`           | Collection metadata: its description together with the user's annotations; see [[[#collection-metadata-data-model]]] |
 | `/space/{space_id}/{collection_id}/meta/log` | `meta`           | Governing history log, a sub-resource under the `meta` segment; see [[[#collection-governing-history-log]]] |
 | `/space/{space_id}/{collection_id}/query`    | `query`          | Query resources within a collection (see [[[#query-profile-registry]]]) |
 | `/space/{space_id}/{collection_id}/quota`    | `quota`          | Storage quota report for collection |
@@ -4439,12 +4442,13 @@ level operations.
 Unlike the Space- and Collection-level reserved segments, which occupy the id
 position one level down and so constrain Collection and Resource id choice,
 these sit *below* the Resource level -- they qualify a `{resource_id}` -- and
-impose no constraint of their own on id choice at any level. Note `meta`'s
-distinct role at each level: the Collection-level row occupies the
-`{resource_id}` position, so `meta` *is* a reserved Resource id (by that row,
-not this table), while the Resource-level `/meta` and `/chunks` segments sit
-one level lower and shadow nothing -- a Resource whose own id is `chunks` is
-unaffected.
+impose no constraint of their own on id choice at any level. `meta` appears in
+all three tables, holding the description of the thing it hangs under (see
+[[[#reading-this-document]]]), but it constrains id choice only where it
+occupies an id position: the Space-level row makes `meta` a reserved Collection
+id and the Collection-level row makes it a reserved Resource id, while the
+Resource-level `/meta` and `/chunks` segments sit one level lower and shadow
+nothing -- a Resource whose own id is `chunks` is unaffected.
 
 </section>
 
@@ -4462,9 +4466,10 @@ a server that does implement encrypted Collections MUST follow the wire formats
 catalogued here.
 </div>
 
-A Collection's optional `encryption` descriptor (see [[[#collection-data-model]]])
-names a client-side encryption `scheme` and a `version` of that scheme's wire
-format -- a positive integer, starting at `1` for each scheme and incremented
+A Collection's optional `encryption` descriptor (see
+[[[#collection-metadata-data-model]]]) names a client-side encryption `scheme`
+and a `version` of that scheme's wire format -- a positive integer, starting at
+`1` for each scheme and incremented
 per registered revision (an absent `version` means `1`). This registry maps
 each `scheme`/`version` pair to the wire format the
 server can expect for Resources in such a Collection, so
@@ -4522,9 +4527,10 @@ encrypted" then structurally implies "plaintext writes to it are rejected here,"
 closing the gap that a silently unenforced descriptor would reopen.
 
 A server MAY instead choose to store descriptors for schemes it does not enforce
-(treating the descriptor as fully opaque, per [[[#collection-data-model]]]), but
-such a server MUST document that it provides no server-side fail-closed
-guarantee for those Collections, leaving the guarantee entirely to clients.
+(treating the descriptor as fully opaque, per
+[[[#collection-metadata-data-model]]]), but such a server MUST document that it
+provides no server-side fail-closed guarantee for those Collections, leaving the
+guarantee entirely to clients.
 
 ### Validation profile
 
@@ -4765,9 +4771,10 @@ already carries one:
   or removed). Changing either value, or removing the member, would orphan
   every blinded index in the Collection, just as a `scheme` change would
   corrupt its Resources. A violation is therefore rejected with the same
-  [=encryption-immutable=] error (see [[[#collection-data-model]]]). Introducing `hmac` on a stored
-  descriptor that lacks it is not a server-side violation; whether a client
-  may do so is a matter for the client-side profile (see
+  [=encryption-immutable=] error (see [[[#collection-metadata-data-model]]]).
+  Introducing `hmac` on a stored descriptor that lacks it is not a server-side
+  violation; whether a client may do so is a matter for the client-side profile
+  (see
   [[[#blinding-key-member]]]).
 
 On a Collection whose descriptor is governed by its history log (see
@@ -4803,9 +4810,10 @@ server stores and serves that declaration:
   stored value -- the stamp describes the content write, not the metadata
   write. It MUST NOT live inside `custom`: on an encrypted Collection `custom`
   is the opaque envelope and is replaced wholesale by every metadata write.
-* An Update Collection Metadata request MAY likewise carry a top-level
-  `epoch` member, stamping the epoch the Collection Metadata's own `custom`
-  envelope was encrypted under. Its omission rule is inverted: an omitted
+* An [[[#update-or-create-by-id-collection-operation]]] request MAY likewise
+  carry a top-level `epoch` member, stamping the epoch the Collection Metadata
+  object's own `custom` envelope was encrypted under. Its omission rule is
+  inverted: an omitted
   `epoch` CLEARS the stored value, because at that level the stamp describes
   the `custom` envelope itself, which every metadata write replaces
   wholesale. See [[[#collection-metadata-data-model]]].
@@ -4825,7 +4833,7 @@ normatively specified in [[WAS-EC]]); other constructions are conformant at
 this specification's level so long as stored envelopes keep satisfying the
 [`edv` envelope profile](#encryption-scheme-registry):
 
-* **A collection's descriptor carries its epoch roster from creation.** The
+* **A collection's metadata carries its epoch roster from creation.** The
   first epoch is installed at provision time by a
   [create-if-absent](#conditional-requests) write
   (an existing roster, including a concurrent provisioner's is adopted,
@@ -4864,15 +4872,15 @@ this specification's level so long as stored envelopes keep satisfying the
 * **Writes** always encrypt under `currentEpoch` and stamp it via
   `Key-Epoch`.
 * **Adding a reader** wraps EVERY epoch's key to it (adding a reader means it
-  can read the Collection, history included) and writes the updated description
-  with `If-Match`. No rotation: adds are inexpensive, removals rotate.
+  can read the Collection, history included) and writes the updated Metadata
+  object with `If-Match`. No rotation: adds are inexpensive, removals rotate.
 * **Removing a reader** is one indivisible procedure: (1) revoke the reader's
   capabilities; (2) mint a fresh epoch key, wrap it to each REMAINING
   recipient, append the epoch, repoint `currentEpoch`, write with `If-Match`;
   (3) subsequent writes use the new epoch. Client libraries should not expose
   a rotate-without-revoke or revoke-without-rotate implementation of "remove".
-* On a [=precondition-failed=] response, re-read the description, re-apply the
-  recipient change to the fresh descriptor, and retry (bounded).
+* On a [=precondition-failed=] response, re-read the Metadata object, re-apply
+  the recipient change to the fresh descriptor, and retry (bounded).
 
 </div>
 
@@ -5047,7 +5055,7 @@ Each entry in `documents` describes one changed Resource:
 * `epoch` (optional) - the Resource's key-epoch stamp, mirroring the Resource
   Metadata property (see [[[#key-epochs]]]), carried so that a replica can
   select its epoch key without a metadata fetch per document. Note that a
-  rekey (a Collection Description change) emits no feed entry of its own: a
+  rekey (a Collection Metadata change) emits no feed entry of its own: a
   replica that encounters an `epoch` it does not know re-reads the Collection
   Description.
 * `writerId` (optional) - the Resource's writer-attribution label, mirroring
@@ -5277,8 +5285,9 @@ for the WAS authorization model.
 ### The encryption descriptor {#edv-over-was-descriptor}
 
 A Collection realizing this profile declares the `encryption` descriptor
-`{ "scheme": "edv", "version": 1 }` in its Collection Description (see
-[[[#collection-data-model]]]; a bare `{ "scheme": "edv" }` is equivalent, since
+`{ "scheme": "edv", "version": 1 }` in its Collection Metadata object (see
+[[[#collection-metadata-data-model]]]; a bare `{ "scheme": "edv" }` is
+equivalent, since
 an absent `version` means `1`). The wire `version` is the integer registry key
 of the envelope format, distinct from this appendix's own "v0.1" maturity
 label. The `edv` scheme's envelope wire format and the
@@ -5430,7 +5439,7 @@ status code depending on the operation.
 | `https://wallet.storage/spec#not-found`                     | <dfn id="not-found">not-found</dfn>                                         | 404            | The resource (Space, Collection, or Resource) does not exist, or the caller is not authorized to access it. These two conditions are deliberately indistinguishable -- see the privacy note below.                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#invalid-id`                    | <dfn id="invalid-id">invalid-id</dfn>                                       | 400            | A Space, Collection, or Resource `id` is missing or not URL-safe.                                                                                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#reserved-id`                   | <dfn id="reserved-id">reserved-id</dfn>                                     | 409            | A client-supplied `id` collides with a [[[#reserved-path-segment-registry]]] segment.                                                                                                                                                                                                                                                                                                                            |
-| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. Also returned when a write would violate a `unique: true` blinded-attribute claim (see [[[#query-profile-blinded-index]]]) or a `unique: true` [=plaintext index=] claim, and when a Collection update adds a `unique: true` plaintext index over Resources that already violate it (see [[[#collection-data-model]]]). (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
+| `https://wallet.storage/spec#id-conflict`                   | <dfn id="id-conflict">id-conflict</dfn>                                     | 409            | A client-supplied `id` in a `POST` create operation already exists. Also returned when a write would violate a `unique: true` blinded-attribute claim (see [[[#query-profile-blinded-index]]]) or a `unique: true` [=plaintext index=] claim, and when a Collection update adds a `unique: true` plaintext index over Resources that already violate it (see [[[#collection-metadata-data-model]]]). (Create-or-replace by `id` is done idempotently via `PUT`, which does not conflict.)                                                                                                                                                                                                                                                         |
 | `https://wallet.storage/spec#invalid-request-body`          | <dfn id="invalid-request-body">invalid-request-body</dfn>                   | 400            | The request body is missing or invalid (e.g. a required property is absent). Entries in `errors` SHOULD carry a `pointer` to the offending field.                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#invalid-cursor`                | <dfn id="invalid-cursor">invalid-cursor</dfn>                               | 400            | A pagination `cursor` query parameter is malformed or can no longer be honored (e.g. an expired snapshot). See [[[#pagination]]].                                                                                                                                                                                                                                                                                |
 | `https://wallet.storage/spec#missing-content-type`          | <dfn id="missing-content-type">missing-content-type</dfn>                   | 400            | A required `Content-Type` header is missing.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -5438,8 +5447,8 @@ status code depending on the operation.
 | `https://wallet.storage/spec#invalid-authorization-header`  | <dfn id="invalid-authorization-header">invalid-authorization-header</dfn>   | 400            | An `Authorization`, `Capability-Invocation`, or `Digest` header is malformed, unparseable, or failed verification.                                                                                                                                                                                                                                                                                               |
 | `https://wallet.storage/spec#controller-mismatch`           | <dfn id="controller-mismatch">controller-mismatch</dfn>                     | 400            | The capability invocation in a Create Space request is not currently authorized by the `controller` supplied in the request body: it is neither signed by that DID nor accompanied by a valid, unexpired delegation chain rooted in it. Servers SHOULD differentiate the cause (chain rooted elsewhere, expired delegation, failed proof) in the `detail` string where they can; see [[[#create-space-errors]]]. |
 | `https://wallet.storage/spec#unsupported-backend`           | <dfn id="unsupported-backend">unsupported-backend</dfn>                     | 409            | A requested `backend` id is not in the space's [[[#space-backends-available]]] list.                                                                                                                                                                                                                                                                                                                             |
-| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor; or it tried to change the `id` or `type` of the descriptor's `hmac` member, or remove that member. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources, and replacing or dropping the blinding key would orphan every blinded index. See [[[#collection-data-model]]] and [[[#blinding-key-member]]]. |
-| `https://wallet.storage/spec#encryption-history-log-governed` | <dfn id="encryption-history-log-governed">encryption-history-log-governed</dfn> | 409            | A Collection update carried an `encryption` member on a Collection whose descriptor is governed by its history log. The member is read-only on the Description: it is derived from the log's head entry, and changes by an append to the log at the Collection's `meta/log` sub-resource. See [[[#collection-governing-history-log]]]. |
+| `https://wallet.storage/spec#encryption-immutable`          | <dfn id="encryption-immutable">encryption-immutable</dfn>                   | 409            | A Collection update tried to change the `scheme`, decrease or remove the `version`, or clear an existing `encryption` descriptor; or it tried to change the `id` or `type` of the descriptor's `hmac` member, or remove that member. The descriptor is set-once, version-monotonic: declaring it on a Collection that lacks one is allowed (and re-declaring the standing values is a no-op), but changing its `scheme`, moving its `version` backward, or clearing it on a populated Collection would corrupt the stored, client-encrypted Resources, and replacing or dropping the blinding key would orphan every blinded index. See [[[#collection-metadata-data-model]]] and [[[#blinding-key-member]]]. |
+| `https://wallet.storage/spec#encryption-history-log-governed` | <dfn id="encryption-history-log-governed">encryption-history-log-governed</dfn> | 409            | A Collection update carried an `encryption` member on a Collection whose descriptor is governed by its history log. The member is read-only on that path: it is derived from the log's head entry, and changes by an append to the log at the Collection's `meta/log` sub-resource. See [[[#collection-governing-history-log]]]. |
 | `https://wallet.storage/spec#encryption-scheme-mismatch`    | <dfn id="encryption-scheme-mismatch">encryption-scheme-mismatch</dfn>       | 422            | A write into an encrypted Collection -- a Resource's content, or the `custom` object of a Resource's or the Collection's own Metadata -- had a body (or `Content-Type`) that does not conform to the Collection's declared `encryption` scheme envelope profile. Reachable only by a caller already authorized to write -- see [[[#encryption-scheme-registry]]].                                                                                                                                           |
 | `https://wallet.storage/spec#unsupported-encryption-scheme` | <dfn id="unsupported-encryption-scheme">unsupported-encryption-scheme</dfn> | 400            | A Collection create/update declared an `encryption` `scheme` (or a `version` of one) the server does not recognize or support. See [[[#encryption-scheme-registry]]].                                                                                                                                                                                                                                                                    |
 | `https://wallet.storage/spec#precondition-failed`           | <dfn id="precondition-failed">precondition-failed</dfn>                     | 412            | A conditional write's `If-Match` / `If-None-Match` precondition evaluated false: the Resource's current version did not match, or a create-if-absent target already exists. Header-driven and distinct from the `409` conflict kinds. See [[[#conditional-requests]]].                                                                                                                                           |
@@ -5640,7 +5649,7 @@ Content-type: application/problem+json
 [=encryption-immutable=] -- a Collection update tried to change the `scheme`,
 decrease or remove the `version`, or clear an
 existing `encryption` descriptor (it is set-once, version-monotonic; see
-[[[#collection-data-model]]]):
+[[[#collection-metadata-data-model]]]):
 
 ```http
 HTTP/1.1 409 Conflict
