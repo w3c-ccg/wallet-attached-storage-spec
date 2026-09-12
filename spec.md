@@ -80,13 +80,18 @@ This subsection is non-normative.
     longer lists [=reserved-id=] either, since a reserved segment in the
     Resource position is a reserved endpoint (see
     [[[#methods-at-reserved-endpoints]]]).
+  * A server publishes a [=service description=] listing every specification
+    version it speaks, found through a `Link: <...>; rel="service"` header on
+    every response (see [[[#service-description]]]). Serving it is REQUIRED,
+    and a response without the link identifies a v0.4 server.
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
 `invocationTarget` was a v0.4 description URL with a `PUT` action has no
 meaning under the v0.5 layout and needs re-delegation against the `meta` URL,
 while a capability on a container URL keeps its prefix coverage unchanged. A
-server MAY serve the two route tables together during a transition.
+server MAY serve the two route tables together during a transition, listing
+both versions in its service description.
 </div>
 
 ### Reading This Document {#reading-this-document}
@@ -124,7 +129,18 @@ segment down, at `meta`: [[[#space-metadata-data-model]]] at
 `/space/{space_id}/{collection_id}/meta`. The same split holds for a Resource,
 whose content is at its own URL and whose
 [[[#resource-metadata-data-model]]] is at `meta` beneath it. Reading a
-description is therefore always a `GET` of `meta`.
+description is therefore always a `GET` of `meta`. The one exception is the
+[=server=] itself, which has no container URL: its description is the
+[=service description=], found by following the `service` link every response
+carries (see [[[#service-description]]]).
+
+**Paths are relative to a server root, which may be a subpath.** Every path in
+this document, `/space/{space_id}/...` and `/spaces/`, is written from the
+[=server=]'s root. That root is not necessarily an origin: a server MAY be
+mounted under a path such as `https://example.com/was/`. A client cannot
+derive the root from a URL it holds, which is why the service description is
+linked rather than placed at a fixed path, and why every URL the service
+description carries is absolute.
 
 **All examples share one Space.** Every example in this document uses the Space
 id `81246131-69a4-45ab-9bff-9c946b59cf2e` on the host `example.com`. Path
@@ -166,28 +182,30 @@ profile table below for the conformance tiers, then walk through
 [[[#quickstart-your-first-request]]] to watch a request succeed. The core tier
 is just [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].
 
-| Profile               | Adds                                                                                             | Defining sections                                                                                     |
-|-----------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| **Minimal**           | Resource CRUD (KV + blob read/write) + authorization                                             | [[[#resources-and-blobs]]], [[[#was-authorization-profile-v0-1]]]                                     |
-| **+ Listing**         | list resources / collections / spaces                                                            | [[[#list-collection-operation]]], [[[#list-all-collections-operation]]], [[[#list-spaces-operation]]] |
-| **+ Collection mgmt** | create / manage collections in a Space                                                           | [[[#collections]]]                                                                                    |
-| **+ Space mgmt**      | manage an individual Space                                                                       | [[[#read-space-operation]]] (Space endpoints)                                                         |
-| **+ Multi-tenant**    | create / manage many Spaces on a server                                                          | [[[#spaces-repositories]]]                                                                            |
-| **+ Extensions**      | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]]                                                                                       |
+| Profile               | Adds                                                                                             | Defining sections                                                                                     | Advertised as (see [[[#service-description-data-model]]]) |
+|-----------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| **Minimal**           | Resource CRUD (KV + blob read/write) + authorization + the service description                   | [[[#resources-and-blobs]]], [[[#was-authorization-profile-v0-1]]], [[[#service-description]]]         | the version entry itself                                  |
+| **+ Listing**         | list resources / collections / spaces                                                            | [[[#list-collection-operation]]], [[[#list-all-collections-operation]]], [[[#list-spaces-operation]]] | `listing`                                                 |
+| **+ Collection mgmt** | create / manage collections in a Space                                                           | [[[#collections]]]                                                                                    | `collection-management`                                   |
+| **+ Space mgmt**      | manage an individual Space                                                                       | [[[#read-space-operation]]] (Space endpoints)                                                         | `space-management`                                        |
+| **+ Multi-tenant**    | create / manage many Spaces on a server                                                          | [[[#spaces-repositories]]]                                                                            | the `spaces` URL member                                   |
+| **+ Extensions**      | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]]                                                                                       | one `features` token per extension, named as listed       |
 
 Each tier stacks on the one above it. The **Minimal** profile is a permissioned
 key/value CRUD API built from simple HTTP verbs and delegatable
 capability-based authorization -- enough, on its own, to read and write any
 resource (text, structured document, or binary blob) without collection or
-space management.**Listing**, **Collection** and **Space** management will feel
+space management -- plus the [=service description=] through which a client
+learns which versions and tiers the server speaks. **Listing**, **Collection** and **Space** management will feel
 familiar to anyone who has used a GUI front end for a database or file system.
 **Multi-tenant** support lets a provider host many Spaces on one server. The
 **Extensions** tier layers on optional features -- an access-policy resource,
 user-writable metadata (for example, "tags" on binary files), a Space export
 endpoint, pluggable [[[#backends]]], query, quotas, client-side encryption (via
 [Encrypted Data Vaults](https://identity.foundation/edv-spec/)), replication,
-and versioning -- discovered through the linkset feature-detection mechanism
-(from [[RFC9264]]; see [[[#linksets]]]).
+and versioning -- advertised server-wide in the service description's
+`features` array and, per Space, through the linkset feature-detection
+mechanism (from [[RFC9264]]; see [[[#linksets]]]).
 
 **Normative status.** Section back-placement does not imply informative status.
 Everything from [[[#introduction]]] through [[[#quotas]]] is normative, as are the
@@ -273,6 +291,13 @@ method the server does not implement at a reserved endpoint is answered with
 `405 Method Not Allowed`; see [[[#methods-at-reserved-endpoints]]].
 
 #### Core
+
+**Service Description:**
+
+* `GET {service description URL}` -- [[[#read-service-description-operation]]].
+  The URL has no fixed path; every response carries it in a
+  `Link: <...>; rel="service"` header (see
+  [[[#discovering-the-service-description]]]).
 
 **Resource CRUD (Create, Read, Update, Delete):**
 
@@ -446,6 +471,14 @@ Required if Space endpoints or Collection endpoints are supported.
   <dd>The implied capability for a [=target=] whose [=controller=] is the Space's
     controller; it is the root of trust from which all other capabilities for
     that target are delegated. See section [[[#root-capability]]].</dd>
+
+  <dt><dfn data-lt="service descriptions">service description</dfn></dt>
+  <dd>The JSON document through which a [=server=] advertises, without
+    authorization, every specification and version it implements and the
+    server-wide URLs and affordances a client needs before it holds a Space.
+    It has no fixed path: every response carries a <code>Link</code> header
+    with the <code>service</code> relation pointing to it. See section
+    [[[#service-description]]].</dd>
 
   <dt><dfn data-lt="target|invocationTarget|targets">target (invocationTarget)</dfn></dt>
   <dd>The resource a request acts on, including the full request URL (scheme,
@@ -1084,6 +1117,327 @@ one page of items at a time using the cursor-based profile defined in Appendix
 [[[#pagination]]]. Pagination is OPTIONAL: a server that returns every item in
 a single response is conformant, and a client MUST be prepared for either
 behavior.
+
+## Service Description {#service-description}
+
+A [=server=] publishes one [=service description=]: a JSON document, readable
+without authorization, that names every specification the server implements
+and the versions it speaks, and carries the server-wide facts a client needs
+before it can perform operations. A client choosing a host at signup, or
+deciding which URL layout to speak after a breaking change, reads this document
+first. Every other signal in this specification (the Space and Collection
+linksets, the Backend `features` array) is reached through a Space-scoped URL,
+which is the very thing a layout change alters, so none of them can serve this
+purpose.
+
+Serving the service description is REQUIRED at every conformance tier (see
+[[[#scope-and-conformance-profiles]]]). It is the one document a client of any
+version must be able to read, so its own format is frozen: a future version of
+this specification may add members to it but MUST NOT rename, remove, or
+change the type of a member defined here.
+
+The service description has no fixed path. A [=server=] MAY be mounted under
+any path of an origin, and a client that holds a WAS URL cannot derive the
+server root from it, so the document is found by following a link rather than
+by convention (see [[[#discovering-the-service-description]]]). This is the
+deliberate exception to the "description lives at `meta`" convention of
+[[[#reading-this-document]]]: the server level has no container URL of its
+own to hang a `meta` segment on.
+
+### Discovering the Service Description {#discovering-the-service-description}
+
+A [=server=] MUST include a `Link` header [[RFC8288]] with the `service` link
+relation [[RFC5023]] on every response it sends, whose target is the service
+description's URL. This includes error responses (a maximum-privacy "not found"
+for an unauthorized request still carries the header), the `308` redirects to a
+canonical path, and responses to `HEAD` and `OPTIONS`. The header is static and
+server-wide, so it reveals nothing about the existence of any Space, Collection,
+or Resource.
+
+```http
+Link: <https://example.com/was/service>; rel="service"
+```
+
+The `service` relation is chosen over the `service-desc` and `service-doc`
+pair of [[RFC8631]] because this specification defines a single machine-readable
+document and no separate human-readable one; [[RFC8631]] section 3.3 recommends
+`service` for exactly that case.
+
+Because the primary consumers are browser-hosted clients on other origins, two
+CORS requirements apply:
+
+* A [=server=] MUST include `Access-Control-Expose-Headers: Link` on every
+  response, so that a cross-origin client can read the `Link` header.
+* A [=server=] MUST serve the service description with
+  `Access-Control-Allow-Origin: *`, since it is fetched anonymously and
+  cross-origin.
+
+The discovery flow is therefore two requests from any WAS URL a client has
+come across (a link to a shared Resource, a public Collection, a service
+endpoint in a DID document):
+
+1. `HEAD` the URL. The response status does not matter; the client reads the
+   `Link` header's `service` target.
+2. `GET` that target (see [[[#read-service-description-operation]]]).
+
+A DID document's service endpoint MAY point at the service description itself,
+in which case a client skips the first step. The service `type` for that entry
+is not yet specified.
+
+The service description is also linked from the [[[#space-linkset]]] and the
+[[[#collection-linkset]]] under the same `service` relation, as a convenience
+for a client that already holds a Space. Those links are secondary: a client
+that can read a linkset is already speaking a layout.
+
+A response with no `service` link comes from a [=server=] that predates this
+document, which was introduced in v0.5. A client MUST treat such a server as
+speaking v0.4.
+
+### Service Description Data Model {#service-description-data-model}
+
+The service description is a JSON object with the following members:
+
+* `url` (required) - The service description's own canonical URL, so that a
+  copy of the document (from a cache, or a DID document) can be refetched.
+* `specs` (required) - An object whose keys are specification identifiers and
+  whose values are arrays of [=version entries=], one per version of that
+  specification the server implements. A specification is listed at every
+  version the server speaks, so a server can serve two route tables during a
+  transition and a client can pick the newest it understands.
+* `instance` (optional) - An object identifying the deployed software, for
+  operators who choose to disclose it. See [[[#instance-disclosure]]] for its
+  members and the trade-off.
+
+Every URL in the service description MUST be absolute. The document is
+self-contained: nothing in it is resolved against the URL it was fetched from.
+
+**Specification identifiers.** The key of a `specs` entry is the persistent
+identifier that the specification declares for itself in its own text, which
+is not the same as its current document location. A specification that
+declares no identifier cannot be advertised. Clients compare keys as opaque
+strings, with no URL normalization: a trailing slash or a scheme difference is
+a different key. The version is never part of the key; the key names the
+specification family, and the [=version entries=] under it carry the versions.
+
+This specification's identifier is `https://w3id.org/pws`.
+
+<div class="ednote">
+The identifier above is provisional: it is registered by the rename this
+document is pending (see [[[#version-history]]]) and may change with it before
+v0.5 is final.
+</div>
+
+**Version entries.** A <dfn data-lt="version entry|version entries">version
+entry</dfn> is a JSON object describing one version of one specification. Its
+members are defined by the specification the key names. Two members are common
+to every entry:
+
+* `version` (required) - The specification version, as a bare `major.minor`
+  string such as `"0.5"`. The patch level never changes the wire contract and
+  is not carried.
+* `url` (optional) - The URL of the specification document at exactly this
+  version, for a reader who wants the text. A version-frozen location (a dated
+  snapshot or a tag) is preferred over a "latest" URL, which stops describing
+  the version once the specification moves on.
+
+An entry means the server conforms to that version's required profile. What
+else the entry advertises is the owning specification's business: endpoint
+URLs, optional sections it also implements, supported algorithms. An optional
+section that has an endpoint of its own is advertised by a URL member, and its
+absence means the section is not supported; a feature token is used only for
+an affordance with no URL of its own. This keeps the service description the
+root of the URL graph: with no fixed path for anything at the server level, a
+client learns every server-level URL from here.
+
+**This specification's version entry.** A version entry under
+`https://w3id.org/pws` carries, in addition to `version` and `url`:
+
+* `spaces` (optional) - The absolute URL of the Spaces Repository (see
+  [[[#spaces-repositories]]]). Absent when the server does not implement it.
+* `features` (optional) - An array of feature tokens naming the OPTIONAL
+  sections of this specification the server implements, beyond the Minimal
+  profile, with the same contract as the Backend `features` array (see
+  [[[#backend-data-model]]]): the vocabulary is open and additive, a client
+  MUST ignore tokens it does not recognize, and MUST treat an absent token (or
+  an absent array) as "not supported". The tokens are those of the profile
+  table in [[[#scope-and-conformance-profiles]]]. A token that a Backend
+  advertises (such as `conditional-writes` or `chunked-streams`) is never
+  repeated here: a token lives at the narrowest level at which it can vary.
+* `signatureAlgorithms` (optional) - An array of the signature algorithms the
+  server accepts on capability invocations (see
+  [[[#performing-authorized-api-calls]]]), named by their JSON Web Algorithms
+  [[RFC7518]] identifiers, so `EdDSA` [[RFC8037]] for Ed25519.
+* `zcapCryptosuites` (optional) - An array of the Data Integrity cryptosuite
+  names the server accepts on capability delegation proofs, such as
+  `eddsa-jcs-2022`.
+
+<div class="ednote">
+The authorization profile ([[[#was-authorization-profile-v0-1]]]) does not yet
+catalogue which values of these two members it requires; the examples below
+use the values the reference implementations exchange today.
+</div>
+
+### Instance Disclosure {#instance-disclosure}
+
+The `instance` member identifies the software serving the document. It is
+OPTIONAL, its presence is the operator's choice, and a client MUST NOT gate any
+behavior on it: what a client acts on is `specs`. Its members:
+
+* `name` (optional) - The software's name, such as the project name of a
+  reference implementation.
+* `version` (optional) - The software's release version. Disclosing an exact
+  patch level is NOT RECOMMENDED; see below.
+* `source` (optional) - The absolute URL of the software's source code. A
+  deployment under a license that requires offering source to network users
+  can satisfy that requirement here.
+* `homepage` (optional) - The absolute URL of the software's project page.
+
+The members follow the `software` object of NodeInfo, the most widely
+deployed vocabulary for this purpose, with `source` in place of its
+`repository`.
+
+Two practices pull in opposite directions here, and this specification takes
+no side beyond the default above. Server-hardening guidance (for example, the
+OWASP Application Security Verification Standard's requirement that responses
+not expose detailed version information of system components) says to
+withhold software versions, because mass scanners and exploit kits select
+targets by matching an exact version string against a known-vulnerable
+release. Federated ecosystems (Fediverse NodeInfo, Matrix)
+routinely advertise software and version, because interop debugging across
+many independent implementations and an ecosystem-wide vulnerability response
+both depend on knowing who runs what.
+
+Two facts specific to this specification narrow the gap. The `specs` member
+already fingerprints a server by the versions and features it speaks, so
+withholding the software name buys less than it does for a web server behind a
+generic page. And a server's conformance behavior identifies its
+implementation to any client that cares to probe. What `instance` adds is the
+cheap path: a scanner keying on a version string. Omitting `version`, or
+carrying only its major component, removes that path while keeping `name`,
+`source`, and `homepage` for debugging and license compliance.
+
+### Read Service Description operation {#read-service-description-operation}
+
+`GET` on the URL named by the `service` link returns the service description as
+`application/json`. The operation requires no authorization. The response
+SHOULD be cacheable (`Cache-Control` and an `ETag`), so that a client
+re-checking a host pays a revalidation rather than a fetch.
+
+Example discovery from a Resource URL the client holds:
+
+```http
+HEAD /was/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/hello-world HTTP/1.1
+Host: example.com
+```
+
+Response (the Resource is private, so the unauthorized request is "not found";
+the `Link` header is present regardless):
+
+```http
+HTTP/1.1 404 Not Found
+Link: <https://example.com/was/service>; rel="service"
+Access-Control-Expose-Headers: Link
+```
+
+Example service description request and response:
+
+```http
+GET /was/service HTTP/1.1
+Host: example.com
+Accept: application/json
+```
+
+Response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Access-Control-Allow-Origin: *
+Access-Control-Expose-Headers: Link
+Cache-Control: public, max-age=3600
+ETag: "a1b2c3"
+Link: <https://example.com/was/service>; rel="service"
+
+{
+  "url": "https://example.com/was/service",
+  "specs": {
+    "https://w3id.org/pws": [
+      {
+        "version": "0.5",
+        "url": "https://w3c-ccg.github.io/wallet-attached-storage-spec/v0.5/",
+        "spaces": "https://example.com/was/spaces/",
+        "features": ["listing", "collection-management", "space-management",
+                     "linksets", "policy", "backends", "quotas"],
+        "signatureAlgorithms": ["EdDSA"],
+        "zcapCryptosuites": ["eddsa-jcs-2022"]
+      },
+      {
+        "version": "0.4",
+        "url": "https://w3c-ccg.github.io/wallet-attached-storage-spec/v0.4/",
+        "spaces": "https://example.com/was/spaces/",
+        "features": ["listing", "collection-management", "space-management",
+                     "linksets", "policy", "backends", "quotas"]
+      }
+    ],
+    "https://w3id.org/encrypted-collections": [
+      { "version": "0.2" }
+    ]
+  },
+  "instance": {
+    "name": "was-teaching-server",
+    "source": "https://github.com/interop-alliance/was-teaching-server"
+  }
+}
+```
+
+The server above serves the v0.4 and v0.5 route tables together during the
+transition described in [[[#version-history]]].
+
+### Selecting a Version {#selecting-a-version}
+
+A client reads the service description before its first structural request to
+a [=server=] and applies these rules:
+
+* A key it does not recognize is ignored.
+* A [=version entry=] without a `version` member is ignored.
+* For each key, the client uses the highest version it understands.
+* If no entry under `https://w3id.org/pws` names a version the client
+  understands, the server is incompatible and the client MUST stop rather than
+  guess a layout. The same applies to a document that is not valid JSON, or
+  that lacks `url` or `specs`.
+* A response with no `service` link means v0.4 (see
+  [[[#discovering-the-service-description]]]).
+
+How often a client re-reads the document is a client policy. A client that
+gates a security-relevant behavior on an advertised affordance (for example,
+publishing only to a host that enforces a verification rule) SHOULD re-check
+before relying on it again, since a host can stop advertising an affordance
+it once did.
+
+### Protocol Evolution {#protocol-evolution}
+
+This specification changes in two ways, and the service description
+distinguishes them.
+
+Additive change (a new optional endpoint, a new feature token, a new error
+kind, a new query profile, a new reserved segment) is advertised through the
+registries in the appendices and through `features`. A client that does not
+know the addition keeps working, because unknown tokens are ignored and absent
+means not supported.
+
+Incompatible change (an existing URL changing meaning, a member changing type,
+a required behavior being removed) takes a new specification version, and the
+new version is advertised as a new [=version entry=]. A server MAY list the old
+and the new version together during a transition, and a client picks the
+newest it understands.
+
+Versions never appear in URL paths. A WAS URL is a capability target and a
+long-lived identity: it is what a delegation chain is rooted on and what a
+client stores to find a Resource again. A version segment in the path would
+bind every delegation chain to a protocol version and would turn every version
+bump into a re-delegation of every capability. The version lives in the service
+description, and a layout change keeps the old URLs meaningful for as long as
+the server lists the old version.
 
 ## Spaces Repositories {#spaces-repositories}
 
@@ -3718,8 +4072,11 @@ Linksets are an OPTIONAL extension. A server MAY omit this feature-detection
 mechanism entirely and remain conformant; see [[[#scope-and-conformance-profiles]]].
 </div>
 
-Linksets (from [[RFC9264]]) serve as the main feature detection and extension
-mechanism. They can be discovered, via the `linkset` property, from the following:
+Linksets (from [[RFC9264]]) are the feature detection and extension mechanism
+for Space- and Collection-scoped facts; server-wide facts, and the versions the
+server speaks, are in the [=service description=] (see
+[[[#service-description]]]). Linksets can be discovered, via the `linkset`
+property, from the following:
 
 * The Space Metadata object, see [[[#space-metadata-data-model]]].
 * The Collection Metadata object, see [[[#collection-metadata-data-model]]].
@@ -3741,6 +4098,8 @@ resources and extension points:
   (`https://wallet.storage/spec#quotas`) -
   A link to the `/space/{space_id}/quotas` per-backend storage [=quota=] report
   (see [[[#quotas]]]).
+* `service` relation ([[RFC5023]]) - A link to the [=service description=]
+  (see [[[#discovering-the-service-description]]]).
 * `/space/{space_id}/query` - Reserved for cross-space query operations.
 
 Example space linkset resource request and response:
@@ -3778,6 +4137,12 @@ Content-type: application/linkset+json
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/quotas",
           "type": "application/json"
         }
+      ],
+      "service": [
+        {
+          "href": "https://example.com/service",
+          "type": "application/json"
+        }
       ]
     }
   ]
@@ -3801,6 +4166,8 @@ to auxiliary resources and extension points:
   (`https://wallet.storage/spec#quota`) - A
   link to the `/space/{space_id}/{collection_id}/quota` storage [=quota=] report
   for this collection (see [[[#quotas]]]).
+* `service` relation ([[RFC5023]]) - A link to the [=service description=]
+  (see [[[#discovering-the-service-description]]]).
 * `/space/{space_id}/{collection_id}/query` - (Optional) Query operations within
   a collection, discriminated by a request-body `profile` (see
   [[[#query-profile-registry]]]).
@@ -3838,6 +4205,12 @@ Content-type: application/linkset+json
       "https://wallet.storage/spec#quota": [
         {
           "href": "/space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/quota",
+          "type": "application/json"
+        }
+      ],
+      "service": [
+        {
+          "href": "https://example.com/service",
           "type": "application/json"
         }
       ]
