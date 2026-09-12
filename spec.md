@@ -1927,10 +1927,11 @@ scheme, validated structurally on write (rejecting a plaintext `custom` with an
 other member of this object stays plaintext. This is what gives an encrypted
 Collection a client-encrypted display name and tags, and a discoverable,
 conditionally-writable home for profile-level configuration such as the
-[[WAS-EC]] blinded-index schema. One consequence: on an encrypted Collection
-every write of this object MUST carry a conforming envelope as its `custom`, so
-the plaintext clearing convention (a `PUT` with no `custom`) is unavailable --
-the cleared state is instead an envelope encrypting an empty object.
+[[WAS-EC]] blinded-index schema. On an encrypted Collection a present `custom`
+MUST be either a conforming envelope or an empty object; an empty object clears
+the stored annotations. Omitting `custom` clears them too, exactly as on a
+plaintext Collection, because a `PUT` of this object is a full replacement.
+That is the same omission-clears rule `epoch` follows.
 
 Example Metadata object of a plaintext Collection (JSON representation):
 
@@ -1995,9 +1996,9 @@ it, and there is no state in which a Collection exists without one: a `GET` of
 There is no `DELETE` at `meta`. Deleting the Collection removes its Metadata
 object with it. To clear the user's annotations alone, send a `PUT` carrying
 the configuration members unchanged and an empty `custom` object, or none at
-all (on an encrypted Collection the cleared state is instead an envelope
-encrypting an empty object, as above). Clearing is itself a write and advances
-`metaVersion`. A Collection later re-created under the same id starts over: its
+all; both forms clear on an encrypted Collection too (as above). Clearing is
+itself a write and advances `metaVersion`. A Collection later re-created under
+the same id starts over: its
 `metaVersion` restarts, so a client MUST NOT compare validators across a delete
 and a re-create.
 
@@ -2254,10 +2255,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   history log; the member is read-only on this path and changes by an append
   to the log (see [[[#collection-governing-history-log]]]).
 * [=encryption-scheme-mismatch=] (422) -- on an encrypted Collection, the
-  request's `custom` is not a conforming envelope of the Collection's declared
-  scheme (including the case of an omitted `custom`, since an encrypted
-  Collection's annotations cannot be cleared to a plaintext state; see
-  [[[#collection-metadata-data-model]]]).
+  request carries a `custom` that is neither a conforming envelope of the
+  Collection's declared scheme nor an empty object. An empty or omitted
+  `custom` is not an error: it clears the stored annotations, as on a
+  plaintext Collection (see [[[#collection-metadata-data-model]]]).
 * [=precondition-failed=] (412) -- the request carried an `If-Match`
   precondition and the object's current `ETag` does not match it, or an
   `If-None-Match: *` precondition against a Collection that already exists
@@ -3214,6 +3215,8 @@ server authenticated on the creating write. The server
 validates the `custom` envelope structurally on write (rejecting a plaintext
 `custom` with an [=encryption-scheme-mismatch=]) and never decrypts it; a client
 holding the keys decrypts `custom` back to `{ name, tags, ... }` after reading.
+An empty `custom` object is accepted as well and clears the stored value, and
+so does an omitted `custom`, here as on a plaintext Collection.
 Because the server cannot read an encrypted `name`, [[[#list-collection-operation]]]
 summaries for an encrypted Collection carry no `name`.
 
@@ -3222,7 +3225,8 @@ Resource itself: it comes into existence (with only server-managed
 properties) when the Resource is created and is removed when the Resource is
 deleted. There is no `DELETE /meta` operation; to clear the user-writable
 properties, send a `PUT` with an empty `custom` object (`{ "custom": {} }`)
-or an empty body object (`{}`).
+or an empty body object (`{}`); both forms clear on an encrypted Collection
+too.
 
 #### Writer attribution: `writerId` and `createdBy` {#writer-attribution}
 
@@ -4507,7 +4511,8 @@ Collection's encryption status. For the Metadata object specifically, the
 document itself stays a plaintext `application/json` object (so the server keeps
 its top-level `contentType`, `size`, and timestamps); only the `custom`
 sub-value MUST be a conforming envelope on an encrypted Collection, validated the
-same fail-closed way (an [=encryption-scheme-mismatch=] on non-conformance).
+same fail-closed way (an [=encryption-scheme-mismatch=] on non-conformance). An
+empty or omitted `custom` is a clearing write and is not validated.
 
 As with [=id-conflict=], a server MUST verify the caller's authorization
 before validating the envelope, so that [=encryption-scheme-mismatch=] is
