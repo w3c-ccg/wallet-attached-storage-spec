@@ -72,6 +72,8 @@ This subsection is non-normative.
     replaces the earlier choice between `405` and a [=reserved-id=] (409)
     error at the Collection `meta` path. A `PUT` at a container URL is now a
     MUST `405` rather than a SHOULD.
+  * An update of a Collection's Metadata object that omits `backend` keeps the
+    stored backend selection, rather than resetting it to the default.
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
@@ -1031,7 +1033,7 @@ one another:
   form, which succeeds only when the Collection does not exist. Two clients
   that both read the object, find the Collection absent, and `PUT` a create
   would otherwise let the loser's full replacement overwrite the winner's
-  (dropping, for example, its `backend`).
+  (replacing, for example, its `backend` selection with the loser's).
 * `If-Match` is opt-in: an unconditional PUT remains valid (and remains
   last-writer-wins). Recipient-management clients MUST use `If-Match`.
 
@@ -1750,7 +1752,9 @@ Writable properties:
   [=invalid-request-body=] error. `generatorOrigin` SHOULD NOT be present
   without `generator`.
 * `backend` (optional) - An object describing the storage backend selected for
-  this collection. If not specified, defaults to the value `{ "id": "default" }`.
+  this collection. If not specified when the Collection is created, defaults to
+  the value `{ "id": "default" }`. An update that omits the member keeps the
+  stored selection (see [[[#update-or-create-by-id-collection-operation]]]).
   The backend object's `id` property MUST be from the list of [[[#space-backends-available]]]
   for the given space. If an unavailable (unsupported) backend is specified,
   the server MUST throw an error.
@@ -2153,12 +2157,18 @@ with the list of [[[#space-level-reserved-endpoints]]].
 
 Full replacement means that a writable member the request omits is cleared, so
 a client that wants to change one member reads the object, edits it, and writes
-it back. Two members qualify that rule. The server-managed members are
+it back. Some members qualify that rule. The server-managed members are
 read-only: a server MUST ignore `createdAt`, `updatedAt`, `createdBy`, `url`,
 and `linkset` in a request body, so that a read-modify-write roundtrip needs no
-stripping. And on a Collection whose `encryption` descriptor is governed by its
+stripping. On a Collection whose `encryption` descriptor is governed by its
 history log, the server derives that member from the log's head and refuses a
-direct write of it (see [[[#collection-governing-history-log]]]).
+direct write of it (see [[[#collection-governing-history-log]]]). An update
+that omits `plaintext` leaves the stored member untouched (see its member
+definition). And an update that omits `backend` MUST keep the stored backend
+selection. Clearing it would repoint the Collection at the default backend. The
+Resources already stored in the selected backend would become unreachable, and
+later writes would land elsewhere. Only a create that omits `backend` is
+assigned the default.
 
 The request MAY carry a precondition (see [[[#conditional-requests]]]):
 `If-Match: "<etag>"` performs the write only if the object's current `ETag`
@@ -3873,7 +3883,8 @@ assigned by the server (usually the `default` backend).
 
 An implementer or client of a given server can omit the `backend` property when
 creating a Collection. By default, if not specified, all Collections are
-assigned the `default` backend.
+assigned the `default` backend. Omitting it on a later update of the
+Collection's Metadata object keeps the backend already selected.
 
 ### Backend Data Model {#backend-data-model}
 
