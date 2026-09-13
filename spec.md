@@ -84,6 +84,13 @@ This subsection is non-normative.
     version it speaks, found through a `Link: <...>; rel="service"` header on
     every response (see [[[#service-description]]]). Serving it is REQUIRED,
     and a response without the link identifies a v0.4 server.
+  * Delete Space, Update (or Create by Id) Space, Delete Collection, and
+    Update (or Create by Id) Collection now require a root capability
+    invoked directly by the Space's controller, with exactly two named
+    exceptions (see [[[#the-container-rule]]]). Delegated capabilities
+    previously authorized a Delete Collection carrying the `DELETE` action,
+    and a Delete Space or Update Space carrying any zcap scoped to the
+    Space; both are now refused outside the exceptions.
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
@@ -845,6 +852,52 @@ alone, without its Resources, target the `meta` URL instead; that grant also
 covers the governing history log beneath it (see
 [[[#collection-governing-history-log]]]). The same holds one level up for a
 Space.
+
+##### The Container Rule {#the-container-rule}
+
+Target attenuation stops working for four operations: `DELETE
+/space/{space_id}/`, `PUT /space/{space_id}/meta` on a Space that already
+exists, `DELETE /space/{space_id}/{collection_id}/`, and `PUT
+/space/{space_id}/{collection_id}/meta`. A capability delegated at a
+container's `invocationTarget` -- the Space URL or the Collection URL --
+covers everything beneath it, including its data, so nothing about that
+target tells apart "delete this container" from "delete a Resource inside
+it". These four operations therefore MUST be authorized by a root
+capability invoked directly by the Space's [=controller=]. A delegated
+capability MUST NOT authorize any of them, with exactly two exceptions.
+
+1. **Delete Space.** A delegated capability MAY authorize `DELETE
+   /space/{space_id}/`, for a Space of any controller DID method, when the
+   invoked capability's `invocationTarget` is exactly that Space's URL and
+   its `allowedAction` is exactly `['DELETE']`. The shape is judged on the
+   invoked capability itself: a parent capability further up its
+   delegation chain MAY carry a broader `allowedAction` set, as long as the
+   invoked capability narrows it to exactly `['DELETE']` on exactly the
+   Space URL. Such a capability is not a data grant -- an `allowedAction`
+   of `['DELETE']` alone cannot be used to read or write anything beneath
+   the Space -- so it does not carry the hazard the rule otherwise guards
+   against.
+
+2. **Update (or Create by Id) Collection.** A delegated capability MAY
+   authorize `PUT /space/{space_id}/{collection_id}/meta` when the
+   invoked capability's `invocationTarget` is the Space's own canonical
+   (trailing-slash) URL, rather than the Collection container URL, the
+   Collection Metadata URL, or a Resource URL. A Space-level
+   grant is not a Collection-level data grant, so it does not reopen the
+   hazard either.
+
+Both exceptions are judged on the shape of the capability alone -- its
+`invocationTarget` and `allowedAction` -- independent of who signed it. A
+server MUST NOT treat a capability as satisfying either exception because
+of the verification relationship its signing key holds in a DID document
+(for example, membership in a `capabilityDelegation` set); only the
+capability's own shape, and the [=root capability=] its chain derives
+from, decide whether an exception applies.
+
+Creating a Collection (`POST /space/{space_id}/`) is unaffected by this
+rule: it remains an ordinary attenuated operation, and a delegated
+capability targeting the Space MAY authorize it, like any other create
+by `POST`.
 
 <div class="ednote">
 **Revocation.** This specification does not yet define a revocation
@@ -1781,8 +1834,11 @@ A `PUT` of a Space's Metadata object is a full replacement of that object, and
 creates the Space when none exists under that `id`. The client specifies the
 `id` of the Space in the request URL.
 
-* Requires appropriate authorization (root zcap invoked by the space's
-  controller, or a zcap granting permission to write to a particular space)
+* Requires appropriate authorization. Updating an existing Space's Metadata
+  object MUST be authorized by a root capability invoked directly by the
+  Space's [=controller=]; a delegated capability never authorizes this
+  write, whatever its `allowedAction` (see [[[#the-container-rule]]]).
+  Creating a Space at this URL follows the create-by-id rule below instead.
 * Allows the client to update the following fields:
   - `name`
   - `controller`
@@ -1909,8 +1965,11 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 ### Delete Space operation {#delete-space-operation}
 
-* Requires appropriate authorization (root zcap invoked by the space's
-  controller, or a zcap granting permission to write to a particular space)
+* Requires appropriate authorization: a root capability invoked directly by
+  the space's [=controller=], or a delegated capability whose
+  `invocationTarget` is exactly this Space's URL and whose `allowedAction`
+  is exactly `['DELETE']` -- the Space-delete exception to the container
+  rule, see [[[#the-container-rule]]]
 * Deletes the space and all the data (collections and resources) contained
   in it
 * This operation is idempotent
@@ -2513,6 +2572,14 @@ and creates the Collection when none exists under that `id`. The client
 specifies the `id` of the Collection in the request URL; it MUST NOT collide
 with the list of [[[#space-level-reserved-endpoints]]].
 
+* Requires appropriate authorization: a root capability invoked directly by
+  the space's [=controller=]. Exception: a delegated capability MAY
+  authorize this write when the invoked capability's `invocationTarget` is
+  the Space's own canonical (trailing-slash) URL, rather than the
+  Collection container URL, the Collection Metadata URL, or a Resource URL
+  -- the Collection-metadata exception to the container rule, see
+  [[[#the-container-rule]]].
+
 Full replacement means that a writable member the request omits is cleared, so
 a client that wants to change one member reads the object, edits it, and writes
 it back. Some members qualify that rule. The server-managed members are
@@ -2776,10 +2843,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 
 #### (HTTP API) DELETE `/space/{space_id}/{collection_id}/`
 
-* Requires appropriate authorization
-  - For example, when using [=zCaps=] for authorization, the request
-    must either: be signed by the resource's or the space's [=controller=],
-    or invoke a delegated capability that allows the `DELETE` action.
+* Requires appropriate authorization: a root capability invoked directly by
+  the space's [=controller=]. A delegated capability never authorizes this
+  operation, whatever its `allowedAction` (see [[[#the-container-rule]]]).
 
 * This operation is idempotent
 
