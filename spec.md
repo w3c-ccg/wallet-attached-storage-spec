@@ -74,6 +74,12 @@ This subsection is non-normative.
     MUST `405` rather than a SHOULD.
   * An update of a Collection's Metadata object that omits `backend` keeps the
     stored backend selection, rather than resetting it to the default.
+  * Create Resource no longer lists [=reserved-id=], or [=id-conflict=] for an
+    existing id. The server generates the Resource id there, and a client that
+    chooses one uses Update (or Create by Id) Resource. That operation no
+    longer lists [=reserved-id=] either, since a reserved segment in the
+    Resource position is a reserved endpoint (see
+    [[[#methods-at-reserved-endpoints]]]).
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
@@ -1684,12 +1690,10 @@ user keeps on it. The Collection URL itself is the container of the
 Collection's Resources (see [[[#list-collection-operation]]]).
 
 Because the `meta` segment occupies the `{resource_id}` position, `meta` is a
-reserved Resource id: creating a Resource with the id `meta` is a
-[=reserved-id=] conflict (see [[[#reserved-path-segment-registry]]]). A `GET`
-or `PUT` at this path is therefore always a Collection metadata operation, and
-the [=reserved-id=] rejection arises where a Resource id is supplied
-explicitly, as in a `POST` body's `id`. Methods this specification does not
-define at this path (`DELETE` in particular) are not Resource operations; see
+reserved Resource id (see [[[#reserved-path-segment-registry]]]). A `GET` or
+`PUT` at this path is always a Collection metadata operation, so no Resource
+is ever addressed at the id `meta`. Methods this specification does not define
+at this path (`DELETE` in particular) are not Resource operations either; see
 [[[#methods-at-reserved-endpoints]]] for how a server answers them. The same
 `meta` segment also roots the Collection's governing history log, a separate
 sub-resource at `meta/log` with operations and a validator of its own (see
@@ -2864,8 +2868,9 @@ is stored as the Resource Metadata `writerId` property, and when absent any
 stored `writerId` is cleared.
 
 Example request (adds a JSON object to the `messages` collection).
-Note that since no Resource id was specified, the server auto-generated an id
-and returned it as part of the `Location` response header.
+The server generates the Resource id and returns it in the `Location` response
+header. A client that chooses the id uses
+[[[#update-or-create-by-id-resource-operation]]] instead.
 
 ```http
 POST /space/81246131-69a4-45ab-9bff-9c946b59cf2e/messages/ HTTP/1.1
@@ -2917,19 +2922,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=invalid-request-body=] (400) -- the body does not match its declared
   content type (for example, a multipart upload with no file part, or with
   more than one).
-* [=reserved-id=] (409) -- the supplied Resource `id` collides with one of the
-  [[[#collection-level-reserved-endpoints]]] (for example, `query` or
-  `linkset`).
-* [=id-conflict=] (409) -- a Resource with the supplied `id` already exists.
-  To create or replace a Resource at a client-chosen `id` without conflict,
-  use the idempotent [[[#update-or-create-by-id-resource-operation]]] instead.
-  Servers MUST perform this existence check only *after* the caller's
-  authorization has been verified: an under-authorized caller receives the
-  privacy-merged [=not-found=] (404) per [[[#error-handling]]], so that it
-  cannot use the `409` to probe a Collection for existing Resource ids.
-  Also raised when the write's extracted value for a `unique: true`
+* [=id-conflict=] (409) -- the write's extracted value for a `unique: true`
   [=plaintext index=] is already held by a different Resource in the
-  Collection (see [[[#collection-metadata-data-model]]]).
+  Collection (see [[[#collection-metadata-data-model]]]). Checked only after
+  the caller's authorization has been verified, and atomically with the write.
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
@@ -3060,9 +3056,6 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=invalid-request-body=] (400) -- the body does not match its declared
   content type (for example, a multipart upload with no file part, or with
   more than one).
-* [=reserved-id=] (409) -- the supplied Resource `id` collides with one of the
-  [[[#collection-level-reserved-endpoints]]] (for example, `query` or
-  `linkset`).
 * [=not-found=] (404) -- the enclosing Space or Collection is missing or
   invalid, or the caller has missing or insufficient authorization; per
   [[[#error-handling]]] an under-authorized request is indistinguishable from a
