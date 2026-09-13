@@ -67,6 +67,11 @@ This subsection is non-normative.
     Collections and `POST /space/{space_id}/` creates one. The
     `/space/{space_id}/collections/` endpoint is retired; its segment stays
     reserved.
+  * A method a server does not implement at a reserved endpoint answers
+    `405 Method Not Allowed` (see [[[#methods-at-reserved-endpoints]]]). This
+    replaces the earlier choice between `405` and a [=reserved-id=] (409)
+    error at the Collection `meta` path. A `PUT` at a container URL is now a
+    MUST `405` rather than a SHOULD.
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
@@ -255,7 +260,9 @@ The endpoints below divide into a **Core** profile that every conformant server
 implements, and **Optional extensions** grouped by feature. Each row links to the
 section that defines its operation. Rows marked **Reserved** name a path this
 specification anchors (see [[[#reserved-path-segment-registry]]]) but does not
-yet define an operation for; a server MUST NOT repurpose a reserved path.
+yet define an operation for; a server MUST NOT repurpose a reserved path. A
+method the server does not implement at a reserved endpoint is answered with
+`405 Method Not Allowed`; see [[[#methods-at-reserved-endpoints]]].
 
 #### Core
 
@@ -1305,7 +1312,7 @@ reserved Collection id: creating a Collection with the id `meta` is a
 [=reserved-id=] conflict (see [[[#reserved-path-segment-registry]]]).
 
 `PUT` is not defined at the Space URL itself; the replacement write is a `PUT`
-of this object. A server SHOULD answer a `PUT` at the Space URL with
+of this object. A server MUST answer a `PUT` at the Space URL with
 `405 Method Not Allowed`.
 
 `Space` properties:
@@ -1680,16 +1687,14 @@ reserved Resource id: creating a Resource with the id `meta` is a
 or `PUT` at this path is therefore always a Collection metadata operation, and
 the [=reserved-id=] rejection arises where a Resource id is supplied
 explicitly, as in a `POST` body's `id`. Methods this specification does not
-define at this path (`DELETE` in particular) are not Resource operations
-either: a server MAY answer them with `405 Method Not Allowed`, or -- treating
-the request as a Resource operation on a reserved id -- with a [=reserved-id=]
-(409) error, but MUST NOT let them act on a stored Resource. The same `meta`
-segment also roots the Collection's governing history log, a separate
+define at this path (`DELETE` in particular) are not Resource operations; see
+[[[#methods-at-reserved-endpoints]]] for how a server answers them. The same
+`meta` segment also roots the Collection's governing history log, a separate
 sub-resource at `meta/log` with operations and a validator of its own (see
 [[[#collection-governing-history-log]]]).
 
 `PUT` is not defined at the Collection URL itself; the replacement write is a
-`PUT` of this object. A server SHOULD answer a `PUT` at the Collection URL with
+`PUT` of this object. A server MUST answer a `PUT` at the Collection URL with
 `405 Method Not Allowed`.
 
 Reading and writing this object are part of the OPTIONAL Collection management
@@ -4453,6 +4458,38 @@ occupies an id position: the Space-level row makes `meta` a reserved Collection
 id and the Collection-level row makes it a reserved Resource id, while the
 Resource-level `/meta` and `/chunks` segments sit one level lower and shadow
 nothing -- a Resource whose own id is `chunks` is unaffected.
+
+### Methods at Reserved Endpoints {#methods-at-reserved-endpoints}
+
+This subsection governs requests to the reserved endpoints listed in the
+three tables above.
+
+A request to a reserved endpoint with a method the server does not implement
+at that endpoint MUST be answered with `405 Method Not Allowed`. The response
+carries an `Allow` header naming the methods the server does implement there,
+as [[RFC9110]] requires of a 405.
+
+An endpoint can belong to an OPTIONAL group the server does not implement at
+all. Where that is so, the group's own rule governs the request instead,
+typically an [=unsupported-operation=] (501) error (see for example
+[[[#collection-metadata-data-model]]] and [[[#resource-metadata-data-model]]]).
+
+`HEAD` counts as implemented wherever `GET` is. This subsection does not
+govern `OPTIONS`.
+
+The `308` redirect this registry permits for the retired `collections`
+segment (see [[[#space-level-reserved-endpoints]]]) is the server's
+implementation of the redirected methods. Those methods are not refused.
+
+The server MUST answer the 405 without regard to whether the Space,
+Collection, or Resource named in the path exists. So the answer reveals
+nothing the [=not-found=] rule protects (see [[[#error-handling]]]). A server
+MUST NOT treat such a request as an operation on a Collection or Resource
+whose id is the reserved segment.
+
+This refusal has no entry in the Error Type Registry. Its meaning is the HTTP
+status alone. A problem body, where a server sends one, uses [[RFC9457]]'s
+`about:blank` type.
 
 </section>
 
