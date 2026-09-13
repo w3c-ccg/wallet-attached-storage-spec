@@ -2089,10 +2089,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   cannot use the `409` to probe a Space for existing Collection ids.
 * [=unsupported-backend=] (409) -- the supplied `backend` id is not in that
   space's [[[#space-backends-available]]] list.
-* [=invalid-request-body=] (400) -- the `encryption` descriptor's key-epoch
-  or `hmac` members are malformed (see [[[#key-epochs]]]); or the body
-  carries both `plaintext` and `encryption`, or a malformed `plaintext`
-  member (see [[[#collection-metadata-data-model]]]).
+* [=invalid-request-body=] (400) -- the request body is not a JSON object,
+  or it breaks a validation rule of the Collection Metadata object (see
+  [[[#collection-metadata-data-model]]]) or of its key-epoch and `hmac`
+  members (see [[[#key-epoch-server-validation]]]).
 
 ### Read Collection Metadata operation {#read-collection-metadata-operation}
 
@@ -2248,19 +2248,14 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=encryption-immutable=] (409) -- the update tried to change the `scheme`,
   decrease or remove the `version`, or clear an existing `encryption`
   descriptor (the descriptor is set-once, version-monotonic; see
-  [[[#collection-data-model]]]). Also raised when the update changes the `id`
+  [[[#collection-metadata-data-model]]]). Also raised when the update changes the `id`
   or `type` of the descriptor's `hmac` member, or removes that member; the
   blinding key is permanent once present (see [[[#blinding-key-member]]]).
 * [=invalid-request-body=] (400) -- the request body is not a JSON object,
-  the descriptor's key-epoch or `hmac` members are malformed, a top-level `epoch` member is present
-  but is not a non-empty string, the
-  `custom` object (or a property within it) does not have the shape described in
-  [[[#collection-metadata-data-model]]], or the update violates a server-side
-  invariant on the epoch members (`epochs` append-only, `currentEpoch` never moving
-  backwards); see [[[#key-epochs]]]. Also raised when the resulting
-  description would carry both `plaintext` and `encryption` (whichever of
-  the two the update adds), or when the supplied `plaintext` member is
-  malformed (see [[[#collection-data-model]]]).
+  or it breaks a validation rule of the Collection Metadata object (see
+  [[[#collection-metadata-data-model]]]), its key-epoch and `hmac` members
+  (see [[[#key-epoch-server-validation]]]), or its top-level `epoch` member
+  (see [[[#epoch-stamping-on-resources]]]).
 * [=encryption-history-log-governed=] (409) -- the update carries an
   `encryption` member on a Collection whose descriptor is governed by its
   history log; the member is read-only on this path and changes by an append
@@ -2269,10 +2264,6 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   `plaintext.indexes` entry whose already-stored Resources violate the
   claim; the stored declaration is left unchanged (see
   [[[#collection-metadata-data-model]]]).
-* [=encryption-history-log-governed=] (409) -- the update carries an
-  `encryption` member on a Collection whose descriptor is governed by its
-  history log; the member is read-only on this path and changes by an append
-  to the log (see [[[#collection-governing-history-log]]]).
 * [=encryption-scheme-mismatch=] (422) -- on an encrypted Collection, the
   request carries a `custom` that is neither a conforming envelope of the
   Collection's declared scheme nor an empty object. An empty or omitted
@@ -3189,6 +3180,11 @@ User-writable properties:
     that tags stay cheap to index and filter on. Applications that need
     richer structured metadata SHOULD store it as a Resource in its own
     right rather than in `tags`.
+
+  On a plaintext Collection, a `custom` value that is not a JSON object, or a
+  `name` or `tags` member that does not have the shape described above, is an
+  [=invalid-request-body=] error. On an encrypted Collection, `custom` is
+  validated as an envelope instead (see below).
 * `epoch` (optional) - The key-epoch `id` this Resource's content was
   encrypted under (see [[[#key-epochs]]]). Declared by the writer via the
   `Key-Epoch` header on a content write or a top-level `epoch` member on
@@ -3416,10 +3412,10 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   create one), or the caller has missing or insufficient authorization,
   per [[[#error-handling]]].
 * [=invalid-request-body=] (400) -- the request body is not a JSON object,
-  the `custom` object (or a property within it) does not have the shape
-  described in [[[#resource-metadata-data-model]]], or a top-level `epoch`
-  (see [[[#key-epochs]]]) or `writerId` (see [[[#writer-attribution]]])
-  member is present but is not a non-empty string.
+  or it breaks a validation rule of the Resource Metadata object (see
+  [[[#resource-metadata-data-model]]]), its top-level `epoch` member (see
+  [[[#epoch-stamping-on-resources]]]), or its top-level `writerId` member
+  (see [[[#writer-attribution]]]).
 * [=unsupported-operation=] (501) -- the server does not implement the
   optional metadata endpoints.
 
