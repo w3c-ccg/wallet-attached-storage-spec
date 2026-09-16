@@ -1069,13 +1069,6 @@ specification does not enumerate them.
   it does not recognize, and MUST treat an absent token (or an absent array)
   as "not supported". The tokens are those of the profile table in
   [[[#scope-and-conformance-profiles]]].
-* `signatureAlgorithms` (optional) - An array of the signature algorithms the
-  server accepts on capability invocations (see
-  [[[#performing-authorized-api-calls]]]), named by their JSON Web Algorithms
-  [[RFC7518]] identifiers, so `EdDSA` [[RFC8037]] for Ed25519.
-* `zcapCryptosuites` (optional) - An array of the Data Integrity cryptosuite
-  names the server accepts on capability delegation proofs, such as
-  `eddsa-jcs-2022`.
 
 **An authorization profile's version entry.** A server lists every
 authorization profile it implements under the profile's own identifier (see
@@ -4259,6 +4252,25 @@ log as the method's specification defines: the SCID is checked against the
 log's first entry, the hash chain of entries is verified, pre-rotation
 commitments (`nextKeyHashes`) are enforced, and each entry's proof is
 verified against the update keys authorized by the entry before it.
+
+</section>
+
+<section class="appendix normative">
+
+## Policy Type Registry {#policy-type-registry}
+
+This appendix is normative.
+
+This registry lists the `type` values an access control [=policy=] may carry
+(see [[[#access-control-policies]]]) and the specification that defines each
+one. A [=server=] evaluates a policy by looking its `type` up here. A `type`
+not in this registry is unrecognized and grants nothing, per the fail-closed
+rule. Registering a type adds a row naming the specification that defines
+it; this specification defines no policy type itself.
+
+| `type`          | Grants                                                                                 | Defined by     |
+|-----------------|----------------------------------------------------------------------------------------|----------------|
+| `PublicCanRead` | the `read` access kind to any caller, including unauthenticated ones; no write access | [[PWS-AUTHZ]] |
 
 </section>
 
