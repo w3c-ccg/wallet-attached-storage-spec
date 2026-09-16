@@ -4266,12 +4266,6 @@ Backend description properties:
     filesystem or database backends). This is the default if unspecified.
   - `external` - a "Bring Your Own Storage" provider registered by the client
     (for example, a connected Dropbox account).
-* `storageMode` (optional) - An array of storage modalities the backend
-  supports. This specification defines two values: `document` (structured JSON
-  resources) and `blob` (opaque binary byte streams). Advertising modalities up
-  front prevents mismatches, such as attempting to store a multi-gigabyte
-  binary file on a JSON-only document store. If unspecified, clients SHOULD
-  assume both modalities are supported.
 * `persistence` (optional) - Either `durable` (the engine stores data on
   persistent media, e.g. disk, and it survives a restart) or `volatile` (the
   engine stores data in memory, e.g. a RAM-backed cache tier, and data may not
@@ -4359,21 +4353,18 @@ Content-type: application/json
     "id": "default",
     "name": "Server Filesystem",
     "managedBy": "server",
-    "storageMode": ["document", "blob"],
     "persistence": "durable"
   },
   {
     "id": "dropbox",
     "name": "Dropbox",
     "managedBy": "external",
-    "storageMode": ["blob"],
     "persistence": "durable"
   },
   {
     "id": "edv",
     "name": "Encrypted Data Vault",
     "managedBy": "server",
-    "storageMode": ["document", "blob"],
     "persistence": "durable",
     "features": ["conditional-writes", "blinded-index-query", "chunked-streams"]
   }
@@ -4403,8 +4394,6 @@ hierarchy.) That generalization will bring with it:
 * A sync-status vocabulary per replica (e.g. `synced`, `syncing`, `stale`);
   the exact state machine, including how "cold boots" of `volatile` backends
   are surfaced, is to be determined.
-* A Collection-level `storageMode` declaration, validated against each
-  replica's backend at creation time.
 * Logical vs physical byte accounting in quota reports: the deduplicated size
   of the user's data vs the total bytes consumed across all replicas. These
   only diverge once replication exists, so the [[[#quotas]]] report currently
