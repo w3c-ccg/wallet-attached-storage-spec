@@ -936,7 +936,9 @@ and [[[#collection-linkset]]]).
 
 ##### `PublicCanRead`
 
-For v0.1, the only normative policy `type` is `PublicCanRead`:
+Policy `type` values are defined by policy profiles, in the same way that
+authorization is defined by an authorization profile. This specification does
+not fix the set. The one type this version defines is `PublicCanRead`:
 
 ```json
 { "type": "PublicCanRead" }
