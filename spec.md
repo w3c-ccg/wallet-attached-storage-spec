@@ -74,16 +74,24 @@ This subsection is non-normative.
     MUST `405` rather than a SHOULD.
   * An update of a Collection's Metadata object that omits `backend` keeps the
     stored backend selection, rather than resetting it to the default.
-  * Create Resource no longer lists [=reserved-id=], or [=id-conflict=] for an
-    existing id. The server generates the Resource id there, and a client that
-    chooses one uses Update (or Create by Id) Resource. That operation no
-    longer lists [=reserved-id=] either, since a reserved segment in the
-    Resource position is a reserved endpoint (see
-    [[[#methods-at-reserved-endpoints]]]).
+  * Create Resource can no longer respond with [=reserved-id=], or with
+    [=id-conflict=] for an existing id. The server generates the Resource id
+    there, and a client that chooses one uses Update (or Create by Id)
+    Resource. That operation can no longer respond with [=reserved-id=]
+    either, since a reserved segment in the Resource position is a reserved
+    endpoint (see [[[#methods-at-reserved-endpoints]]]).
   * A server publishes a [=service description=] listing every specification
     version it speaks, found through a `Link: <...>; rel="service"` header on
     every response (see [[[#service-description]]]). Serving it is REQUIRED,
     and a response without the link identifies a v0.4 server.
+  * A Backend description no longer carries a `features` array; conditional
+    writes and key-epoch stamping are now baseline server requirements rather
+    than backend-advertised affordances. `changes-query` is now advertised
+    server-wide in the service description's `features` array rather than per
+    backend. WAS-EC's optional affordances (`blinded-index-query` and
+    `governed-history-logs`) are now tokens of its own version entry rather
+    than backend features, and serving the chunk endpoints is now a plain
+    requirement of WAS-EC conformance rather than a token at all.
 
 No stored data moves across the v0.4-to-v0.5 path changes. The durable
 artifacts to audit are capabilities. A delegated capability whose
@@ -189,7 +197,7 @@ is just [[[#resources-and-blobs]]] plus [[[#was-authorization-profile-v0-1]]].
 | **+ Collection mgmt** | create / manage collections in a Space                                                           | [[[#collections]]]                                                                                    | `collection-management`                                   |
 | **+ Space mgmt**      | manage an individual Space                                                                       | [[[#read-space-operation]]] (Space endpoints)                                                         | `space-management`                                        |
 | **+ Multi-tenant**    | create / manage many Spaces on a server                                                          | [[[#spaces-repositories]]]                                                                            | the `spaces` URL member                                   |
-| **+ Extensions**      | linksets, policy, metadata, export, backends, query, quotas, encryption, replication, versioning | [[[#linksets]]]                                                                                       | one `features` token per extension, named as listed       |
+| **+ Extensions**      | linksets, policy, metadata, export, backends, query, quotas, encryption, changes-query | [[[#linksets]]]                                                                                       | one `features` token per extension, named as listed       |
 
 Each tier stacks on the one above it. The **Minimal** profile is a permissioned
 key/value CRUD API built from simple HTTP verbs and delegatable
@@ -201,11 +209,11 @@ familiar to anyone who has used a GUI front end for a database or file system.
 **Multi-tenant** support lets a provider host many Spaces on one server. The
 **Extensions** tier layers on optional features -- an access-policy resource,
 user-writable metadata (for example, "tags" on binary files), a Space export
-endpoint, pluggable [[[#backends]]], query, quotas, client-side encryption (via
-[Encrypted Data Vaults](https://identity.foundation/edv-spec/)), replication,
-and versioning -- advertised server-wide in the service description's
-`features` array and, per Space, through the linkset feature-detection
-mechanism (from [[RFC9264]]; see [[[#linksets]]]).
+endpoint, pluggable [[[#backends]]], query, quotas, and client-side encryption
+(via [Encrypted Data Vaults](https://identity.foundation/edv-spec/)) --
+advertised server-wide in the service description's `features` array and, per
+Space, through the linkset feature-detection mechanism (from [[RFC9264]]; see
+[[[#linksets]]]).
 
 **Normative status.** Section back-placement does not imply informative status.
 Everything from [[[#introduction]]] through [[[#quotas]]] is normative, as are the
@@ -330,8 +338,9 @@ implicit, controlled by the server.
 * `PUT /space/{space_id}/{collection_id}/meta` -- [[[#update-or-create-by-id-collection-operation]]]
 * `DELETE /space/{space_id}/{collection_id}/` -- [[[#delete-collection-operation]]]
 * `GET|PUT /space/{space_id}/{collection_id}/meta/log` --
-  [[[#collection-governing-history-log]]] (available only on a backend
-  advertising `governed-history-logs`)
+  [[[#collection-governing-history-log]]] (available only on a server whose
+  WAS-EC version entry advertises `governed-history-logs`; see
+  [[[#service-description-data-model]]])
 
 **Spaces Repository Endpoints -- Manage Spaces on a Server:**
 
@@ -357,8 +366,9 @@ pre-configured and controlled by the server.
 * `GET /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#read-resource-metadata-operation]]]
 * `PUT /space/{space_id}/{collection_id}/{resource_id}/meta` -- [[[#update-resource-metadata-operation]]]
 
-**Chunked Resource Endpoints** (see [[[#chunked-resources]]]; available only on a
-backend advertising `chunked-streams`):
+**Chunked Resource Endpoints** (see [[[#chunked-resources]]]; serving them is a
+requirement of [[WAS-EC]] conformance, so a server that does not implement
+[[WAS-EC]] MAY omit them entirely):
 
 * `PUT|GET|HEAD|DELETE /space/{space_id}/{collection_id}/{resource_id}/chunks/{index}`
   -- store, read, head, delete a single chunk.
@@ -429,8 +439,9 @@ Required if Space endpoints or Collection endpoints are supported.
     non-negative integer index under the Resource's reserved <code>chunks</code>
     sub-path. The [=server=] stores a chunk exactly like a binary Resource
     representation and never parses it; framing and reassembly are the client's
-    concern. Available only on a [=backend=] advertising the
-    <code>chunked-streams</code> feature. See section [[[#chunked-resources]]].</dd>
+    concern. Serving chunks is a requirement of [[WAS-EC]] conformance; a
+    server that does not implement [[WAS-EC]] MAY omit the chunk endpoints.
+    See section [[[#chunked-resources]]].</dd>
 
   <dt><dfn data-lt="collections">collection</dfn></dt>
   <dd>A namespace and configuration container for resources. Conceptually maps
@@ -936,7 +947,9 @@ and [[[#collection-linkset]]]).
 
 ##### `PublicCanRead`
 
-For v0.1, the only normative policy `type` is `PublicCanRead`:
+Policy `type` values are defined by policy profiles, in the same way that
+authorization is defined by an authorization profile. This specification does
+not fix the set. The one type this version defines is `PublicCanRead`:
 
 ```json
 { "type": "PublicCanRead" }
@@ -1020,18 +1033,15 @@ are not yet specified.
 
 ### Conditional Requests {#conditional-requests}
 
-Servers and backends MAY support [[RFC9110]] conditional requests to provide
-optimistic concurrency control on writes. This mechanism helps prevent the
+A server MUST support [[RFC9110]] conditional requests to provide optimistic
+concurrency control on every Resource write path. This mechanism prevents the
 "lost update" problem, where two clients that both read version N of a Resource
-each write version N+1 and the second silently clobbers the first. A backend
-that supports this advertises the `conditional-writes` feature in its Backend
-description (see [[[#backend-data-model]]]); a client SHOULD use these
-preconditions only against a backend that advertises support.
+each write version N+1 and the second silently clobbers the first.
 
-When supported, a Resource carries a strong **`ETag`** validator that changes
-whenever its stored content changes. Servers SHOULD return the `ETag` on
-`GET`/`HEAD` responses. The validator is opaque to clients: how a backend
-derives it is a server-side concern (see [[[#backend-data-model]]]).
+A Resource carries a strong **`ETag`** validator that changes whenever its
+stored content changes. Servers SHOULD return the `ETag` on `GET`/`HEAD`
+responses. The validator is opaque to clients: how a server derives it is a
+server-side concern.
 
 A state-changing request (`PUT` or `DELETE`) MAY carry a precondition:
 
@@ -1043,12 +1053,24 @@ A state-changing request (`PUT` or `DELETE`) MAY carry a precondition:
   exist (a "create-if-absent"). If it already exists, the server MUST NOT
   perform the write and MUST respond with [=precondition-failed=] (`412`).
 
-A server that supports conditional writes MUST evaluate the precondition
-atomically with the write, so that two concurrent writers cannot both observe
-the same prior version and both succeed; how a backend achieves this atomicity
-is a server-side concern (see [[[#backend-data-model]]]). A client recovers
-from a `412` by re-reading the current Resource, re-applying its change on top
-of the new version, and retrying.
+A server MUST evaluate the precondition atomically with the write, so that two
+concurrent writers cannot both observe the same prior version and both
+succeed. A client recovers from a `412` by re-reading the current Resource,
+re-applying its change on top of the new version, and retrying.
+
+<div class="note">
+The storage engine behind a [=backend=] need not offer a precondition
+primitive of its own. A client never addresses the engine directly, so the
+server can serialize writes itself (under a per-Resource lock, or a shared
+lock or compare-and-swap when horizontally scaled) and mint its own opaque
+validator, such as a content hash or an internal version counter. Emulating
+over an engine that is also writable outside the server, as a
+client-registered external provider often is, carries two hazards: an
+out-of-band write leaves the validator describing stale content, and a
+validator stored apart from the bytes can be orphaned by a crash between the
+two writes. Neither has a client-side remedy; embedding the validator in the
+stored object addresses the second.
+</div>
 
 As with [=id-conflict=], a server MUST verify the caller's authorization
 before evaluating a precondition, so a `412` is only ever observed by a caller
@@ -1079,10 +1101,10 @@ one another:
 The **Space Metadata object** carries the same validator, on the same terms:
 the [[[#read-space-operation]]] response includes an `ETag` header over the
 object's monotonic version, the [[[#update-or-create-by-id-space-operation]]]
-request MAY carry `If-Match` or `If-None-Match: *`, and a server advertising
-the `conditional-writes` feature MUST evaluate either atomically with the
-write and reject a failed precondition with [=precondition-failed=] (412). The
-Create Space and Update Space responses carry the new `ETag`. The
+request MAY carry `If-Match` or `If-None-Match: *`, and a server MUST evaluate
+either atomically with the write and reject a failed precondition with
+[=precondition-failed=] (412). The Create Space and Update Space responses
+carry the new `ETag`. The
 create-if-absent form is what lets two clients provisioning the same Space at
 once resolve the race at the server: the loser's replacement `PUT` would
 otherwise rewrite the winner's `type` array, which a server accepts at
@@ -1096,11 +1118,10 @@ operation, distinct from content writes) remains an open question.
 
 A Collection's `metaVersion` is independent of every Resource's validator:
 writing a Resource never advances it, and writing the Metadata object never
-advances a Resource's. Unlike the Resource-level validators it is not gated on
-the `conditional-writes` backend feature -- a server implementing the
-Collection management operations MUST maintain it and MUST support both
-preconditions -- and it covers configuration and annotation writes alike; see
-[[[#collection-metadata-versioning]]].
+advances a Resource's. A server implementing the Collection management
+operations MUST maintain it and MUST support both preconditions, on the same
+baseline terms as a Resource's validator, and it covers configuration and
+annotation writes alike; see [[[#collection-metadata-versioning]]].
 
 A `412` arises only from an explicit `If-Match` / `If-None-Match`
 precondition header. It is deliberately distinct from the header-less `409`
@@ -1126,7 +1147,7 @@ and the versions it speaks, and carries the server-wide facts a client needs
 before it can perform operations. A client choosing a host at signup, or
 deciding which URL layout to speak after a breaking change, reads this document
 first. Every other signal in this specification (the Space and Collection
-linksets, the Backend `features` array) is reached through a Space-scoped URL,
+linksets, the Backend description) is reached through a Space-scoped URL,
 which is the very thing a layout change alters, so none of them can serve this
 purpose.
 
@@ -1247,7 +1268,9 @@ section that has an endpoint of its own is advertised by a URL member, and its
 absence means the section is not supported; a feature token is used only for
 an affordance with no URL of its own. This keeps the service description the
 root of the URL graph: with no fixed path for anything at the server level, a
-client learns every server-level URL from here.
+client learns every server-level URL from here. A companion specification
+defines the tokens (if any) of its own version entry's `features` array; this
+specification does not enumerate them.
 
 **This specification's version entry.** A version entry under
 `https://w3id.org/pws` carries, in addition to `version` and `url`:
@@ -1256,13 +1279,10 @@ client learns every server-level URL from here.
   [[[#spaces-repositories]]]). Absent when the server does not implement it.
 * `features` (optional) - An array of feature tokens naming the OPTIONAL
   sections of this specification the server implements, beyond the Minimal
-  profile, with the same contract as the Backend `features` array (see
-  [[[#backend-data-model]]]): the vocabulary is open and additive, a client
-  MUST ignore tokens it does not recognize, and MUST treat an absent token (or
-  an absent array) as "not supported". The tokens are those of the profile
-  table in [[[#scope-and-conformance-profiles]]]. A token that a Backend
-  advertises (such as `conditional-writes` or `chunked-streams`) is never
-  repeated here: a token lives at the narrowest level at which it can vary.
+  profile: the vocabulary is open and additive, a client MUST ignore tokens
+  it does not recognize, and MUST treat an absent token (or an absent array)
+  as "not supported". The tokens are those of the profile table in
+  [[[#scope-and-conformance-profiles]]].
 * `signatureAlgorithms` (optional) - An array of the signature algorithms the
   server accepts on capability invocations (see
   [[[#performing-authorized-api-calls]]]), named by their JSON Web Algorithms
@@ -2175,7 +2195,8 @@ Writable properties:
   here exists because key management is out of this specification's scope, and
   is not a license for such a profile's clients to operate an epoch-less
   descriptor.
-  On a backend advertising `governed-history-logs`, the descriptor MAY instead
+  On a server whose WAS-EC version entry advertises `governed-history-logs`
+  (see [[[#service-description-data-model]]]), the descriptor MAY instead
   be governed by the Collection's history log: the server then derives it from
   the log's head entry, stamps a `history` member on the served value, and
   refuses a direct write of it with an [=encryption-history-log-governed=]
@@ -2816,11 +2837,12 @@ profile**, not by this specification. The `encryption` descriptor of the
 resource log profile of [[WAS-EC]]; see
 [[[#governed-encryption-descriptor]]].
 
-Support is OPTIONAL and discoverable. A backend that implements the
-sub-resource advertises the `governed-history-logs` token in its Backend
-description (see [[[#backend-data-model]]]). A server without the feature
-serves a client-written member instead, so a producer MUST consult the token
-before choosing which form to write. A [=server=] that does not implement the
+Support is OPTIONAL and discoverable. A server that implements the
+sub-resource advertises `governed-history-logs` in its WAS-EC version entry's
+`features` array (see [[[#service-description-data-model]]]). A server without
+the affordance serves a client-written member instead, so a producer MUST
+consult the token before choosing which form to write. A [=server=] that does
+not implement the
 sub-resource SHOULD return an [=unsupported-operation=] (501) error for
 requests to its path, and MUST NOT treat them as Resource operations (the
 path lies under the reserved `meta` segment; see
@@ -2930,9 +2952,8 @@ resource log format, the equality check of [[WAS-EC]]).
 The log carries its own monotonic version, exposed as a strong `ETag`
 validator on read, on the same terms as the Collection Metadata object (see
 [[[#collection-metadata-versioning]]]). A server implementing the
-sub-resource MUST maintain it, MUST honor `If-Match` and `If-None-Match: *`
-on write, evaluated atomically with the write, and does so regardless of the
-`conditional-writes` backend feature. A log that does not exist has no
+sub-resource MUST maintain it and MUST honor `If-Match` and `If-None-Match: *`
+on write, evaluated atomically with the write. A log that does not exist has no
 validator, and `If-None-Match: *` succeeds exactly then. Because a log write
 changes the derived member, it also advances the Collection's `metaVersion`: a
 client holding that `ETag` sees the change on its next conditional read. A
@@ -3414,12 +3435,11 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=payload-too-large=] (413) -- the upload exceeds the backend's
   `maxUploadBytes` constraint (see [[[#quotas]]]).
 * [=precondition-failed=] (412) -- a conditional write's `If-Match` /
-  `If-None-Match` precondition evaluated false, on a backend that advertises
-  the `conditional-writes` feature (see [[[#conditional-requests]]]).
+  `If-None-Match` precondition evaluated false (see
+  [[[#conditional-requests]]]).
 
 This operation accepts the `If-Match` / `If-None-Match` write preconditions
-described in [[[#conditional-requests]]] when the target backend advertises the
-`conditional-writes` feature.
+described in [[[#conditional-requests]]].
 
 ### Delete Resource Operation {#delete-resource-operation}
 
@@ -3512,14 +3532,12 @@ Metadata object; the timestamps and `createdBy` are OPTIONAL):
   client MUST treat an absent `createdBy` as "not recorded" rather than as an
   assertion that the Resource has no creator.
 
+This metadata model does not mandate a stored `etag` / version property as
+such; a Resource's version is always exposed as an HTTP `ETag` validator, per
+[[[#conditional-requests]]].
+
 <div class="ednote">
-**Versioning is optional and backend-advertised.** This metadata model does not
-mandate a stored `etag` / version property. When a backend advertises the
-`conditional-writes` feature it exposes a Resource version as an HTTP `ETag`
-validator and honors `If-Match` / `If-None-Match` preconditions; see
-[[[#conditional-requests]]]. A backend without that feature performs
-unconditional last-writer-wins upserts. The broader Transaction (multi-write
-atomic) mechanism remains deferred.
+The broader Transaction (multi-write atomic) mechanism remains deferred.
 </div>
 
 User-writable properties:
@@ -3776,10 +3794,9 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 ## Chunked Resources {#chunked-resources}
 
 <div class="note">
-Chunked Resources are an OPTIONAL feature, available only against a [=backend=]
-that advertises the `chunked-streams` token in its Backend description (see
-[[[#backend-data-model]]]). A server whose backends do not advertise
-`chunked-streams` MAY omit these endpoints entirely and remain conformant; see
+Chunked Resources are an OPTIONAL feature. Serving the chunk endpoints is a
+requirement of [[WAS-EC]] conformance; a server that does not implement
+[[WAS-EC]] MAY omit these endpoints entirely and remain conformant; see
 [[[#scope-and-conformance-profiles]]].
 </div>
 
@@ -3854,7 +3871,7 @@ a chunk write exactly as they do to a Resource write (see [[[#quotas]]]).
 Each chunk carries its own strong `ETag` validator, independent of the parent
 Resource's and of the other chunks'. The `If-Match` / `If-None-Match` write
 preconditions of [[[#conditional-requests]]] apply per chunk, against that
-validator, on a backend that advertises `conditional-writes`.
+validator.
 
 Example request (storing chunk `0` as raw bytes):
 
@@ -3888,9 +3905,8 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
 * [=quota-exceeded=] (507) -- the Collection's backend has no storage quota
   remaining (see [[[#quotas]]]).
 * [=precondition-failed=] (412) -- a conditional write's `If-Match` /
-  `If-None-Match` precondition evaluated false against the chunk's own `ETag`, on
-  a backend that advertises `conditional-writes` (see
-  [[[#conditional-requests]]]).
+  `If-None-Match` precondition evaluated false against the chunk's own `ETag`
+  (see [[[#conditional-requests]]]).
 
 ### Read Chunk Operation {#read-chunk-operation}
 
@@ -3940,7 +3956,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   [[[#chunk-authorization]]]).
 * Removes the chunk at `{index}` and returns a `204` success response.
 * Accepts the `If-Match` precondition of [[[#conditional-requests]]] against the
-  chunk's own `ETag` on a `conditional-writes` backend.
+  chunk's own `ETag`.
 
 Unlike the [[[#delete-resource-operation]]], deleting a chunk is **not**
 idempotent: a `DELETE` of an absent chunk is rejected with [=not-found=]
@@ -3969,7 +3985,7 @@ Errors (see [[[#error-type-registry]]] for canonical examples):
   caller has missing or insufficient authorization; per [[[#error-handling]]] the
   two are indistinguishable.
 * [=precondition-failed=] (412) -- an `If-Match` precondition evaluated false
-  against the chunk's `ETag`, on a `conditional-writes` backend.
+  against the chunk's `ETag`.
 
 ### List Chunks Operation {#list-chunks-operation}
 
@@ -3993,8 +4009,9 @@ The response is an `application/json` object:
   * `contentType` -- the content type the chunk was stored under.
   * `version` (optional) -- the chunk's monotonic version, the integer from
     which its strong `ETag` is derived (the `ETag` is this integer, quoted).
-    Present only on a backend that advertises `conditional-writes` and therefore
-    tracks a per-chunk version; absent otherwise.
+    Present when the server derives the chunk's `ETag` from an internal
+    version counter; absent when it derives the `ETag` some other way, such
+    as a content hash (see [[[#conditional-requests]]]).
 
 The parent Resource MUST exist for its chunk container to: a listing under an
 absent Resource is a [=not-found=] (`404`). A Resource that exists but has no
@@ -4250,9 +4267,11 @@ Collection's Metadata object keeps the backend already selected.
 
 ### Backend Data Model {#backend-data-model}
 
-A Backend description object advertises a backend's identity and features
-so that clients can select a suitable backend for each Collection (and so that
-storage management UIs can present meaningful choices to users).
+A Backend description object advertises a backend's identity, who operates it,
+and its persistence, so that clients can select a suitable backend for each
+Collection (and so that storage management UIs can present meaningful choices
+to users). Quota constraints on a backend are reported separately, in the
+Quota report (see [[[#quotas]]]).
 
 Backend description properties:
 
@@ -4272,56 +4291,22 @@ Backend description properties:
   survive a restart). Defaults to `durable`. Note that this is a _technical_
   property of the storage engine, deliberately distinct from any _administrative_
   data-retention rules (see the editor's note on lifecycle configuration below).
-* `features` (optional) - An array of feature tokens advertising optional
-  _server affordances_ the backend provides beyond the baseline read/write API,
-  so that clients can gate behavior on what the backend actually does. The
-  vocabulary is open and additive: a client MUST ignore tokens it does not
-  recognize, and MUST treat an absent token (or an absent `features` array) as
-  "not supported" rather than assuming a default. Tokens this specification
-  defines:
-  - `conditional-writes` - the backend enforces `If-Match` / `If-None-Match`
-    write preconditions (see [[[#conditional-requests]]]).
-  - `changes-query` - the backend serves the `changes` profile of the `query`
-    endpoint (see [[[#query-profile-registry]]]).
-  - `blinded-index-query` - the backend serves the `blinded-index` profile of the
-    `query` endpoint (see [[[#query-profile-registry]]]).
-  - `chunked-streams` - the backend supports chunk addressing for large blobs
-    (see [[[#chunked-resources]]]).
-  - `key-epochs` - the backend persists the Resource `epoch` stamp and serves
-    it on metadata, listing, and feed reads, i.e. the server affordances
-    [[[#key-epochs]]] requires beyond the conditional writes on a Collection's
-    Metadata object that every implementation of the Collection management
-    operations supports (see [[[#collection-metadata-versioning]]]). Clients
-    gate recipient-management UX on this token.
-  - `governed-history-logs` - the backend stores a Collection's governing
-    history log at its `meta/log` sub-resource and derives the governed
-    member of the Collection's Metadata object from the log's head (see
-    [[[#collection-governing-history-log]]]). A producer consults this token
-    to learn whether to write the log or the member itself.
 
-Each token names something the **server** must actively do. Note that
-client-side encryption is deliberately **not** a backend feature: an encrypted
-document is opaque client-encrypted JSON that any document-capable backend
-stores faithfully with no server cooperation, and whether a given Collection
-is encrypted varies _per Collection_ on the very same backend. Encryption is
-therefore a property of a Collection's data (signaled at the Collection level
-and held in the client's keys), not a capability of the backend. Concretely,
-this signal is the Collection's optional `encryption` descriptor (see
-[[[#collection-metadata-data-model]]]): a non-secret declaration any authorized
-reader discovers from the Collection's Metadata object, while the keys stay in
-the client.
+Note that client-side encryption is deliberately not a backend property: an
+encrypted document is opaque client-encrypted JSON that any document-capable
+backend stores faithfully with no server cooperation, and whether a given
+Collection is encrypted varies _per Collection_ on the very same backend.
+Encryption is therefore a property of a Collection's data (signaled at the
+Collection level and held in the client's keys), not a property of the
+backend. Concretely, this signal is the Collection's optional `encryption`
+descriptor (see [[[#collection-metadata-data-model]]]): a non-secret
+declaration any authorized reader discovers from the Collection's Metadata
+object, while the keys stay in the client.
 
-A backend that advertises `conditional-writes` takes on the server-side half of
-the client contract in [[[#conditional-requests]]]. It MAY derive the `ETag`
-from an internal monotonic version counter (such as an Encrypted Data Vault
-document `sequence`); the validator is opaque to clients. It MUST evaluate a
-write's `If-Match` / `If-None-Match` precondition atomically with the write
-(for example, under a per-Resource lock), so that two concurrent writers cannot
-both observe the same prior version and both succeed. An in-process
-per-Resource lock satisfies this for a single-instance server only; a
-horizontally-scaled deployment needs to coordinate the check-and-write across
-instances (e.g. an atomic compare-and-swap on the stored version or a shared
-lock).
+Every backend on which a Collection may be created honors the conditional
+writes of [[[#conditional-requests]]]; this holds regardless of what
+persistence primitives the underlying storage engine offers, since the server
+mediates every write.
 
 <div class="ednote">
 The schema of a backend's connection configuration (server-internal
@@ -4365,8 +4350,7 @@ Content-type: application/json
     "id": "edv",
     "name": "Encrypted Data Vault",
     "managedBy": "server",
-    "persistence": "durable",
-    "features": ["conditional-writes", "blinded-index-query", "chunked-streams"]
+    "persistence": "durable"
   }
 ]
 ```
@@ -5341,13 +5325,10 @@ the request and response wire shape of that dialect.
 The request body is an `application/json` object with a REQUIRED `profile` string
 member. All other members are profile-specific. A [=server=] that recognizes the
 `profile` answers with `200 OK` on success and a profile-specific response body.
-A server that does not serve a given `profile`, whether because the server does
-not implement it at all, or because the Collection's [=backend=] lacks the
-capability (see [[[#backend-data-model]]]), MUST respond with an
+A server that does not implement a given `profile` MUST respond with an
 [=unsupported-operation=] (`501`) error.
 
-The `profile` vocabulary is open and additive, mirroring the [=backend=]
-`features` vocabulary (see [[[#backend-data-model]]]): this specification defines
+The `profile` vocabulary is open and additive: this specification defines
 the tokens below, and future profiles register additional tokens. A server MUST
 treat a `profile` it does not recognize the same as one it does not serve, with
 [=unsupported-operation=].
@@ -5374,8 +5355,9 @@ nor whether the target Collection exists.
 The `changes` profile serves an ordered, resumable feed of the content and
 metadata changes in a [=collection=], so that an offline-first replication client
 can pull a Collection's state incrementally and keep a local replica in sync. A
-server that serves this profile SHOULD advertise the `changes-query` [=backend=]
-feature (see [[[#backend-data-model]]]).
+server that serves this profile advertises `changes-query` in its service
+description `features` array (see [[[#service-description-data-model]]]),
+rather than per Collection or per backend.
 
 Request body:
 
@@ -5529,8 +5511,9 @@ attributes, so that a [=server=] can match encrypted documents without seeing
 plaintext attribute names or values. Its semantics follow the query operation of
 the [Encrypted Data Vaults](https://identity.foundation/edv-spec/) specification
 (the same specification the [[[#encryption-scheme-registry]]] references for the
-`edv` envelope). A server that serves this profile SHOULD advertise the
-`blinded-index-query` [=backend=] feature (see [[[#backend-data-model]]]).
+`edv` envelope). This profile is a WAS-EC affordance: a server that serves it
+advertises `blinded-index-query` in its WAS-EC version entry's `features`
+array (see [[[#service-description-data-model]]]).
 
 Documents opt in by carrying the EDV `indexed` member: an array of entries of the
 shape `{ "hmac": { "id", "type" }, "sequence", "attributes": [ { "name",
@@ -5738,16 +5721,14 @@ atomically server-side. This profile maps that onto WAS conditional writes (see
   and writes it back with `If-Match` pinned to the `ETag` observed on that read,
   so a concurrent writer's stale update is a `412` rather than a lost update.
 
-A client SHOULD use these preconditions only against a backend advertising
-`conditional-writes` (see [[[#backend-data-model]]]). Against a backend without
-it, the mapping degrades to advisory: the `sequence` is still carried in the
-envelope but is not enforced, and writes are last-writer-wins -- the floor the
-profile reaches on any conformant WAS server.
+Both preconditions are honored on any conformant WAS server, since conditional
+writes are a baseline server requirement (see [[[#conditional-requests]]]).
 
 ### Chunked streams {#edv-over-was-chunked-streams}
 
-A large or streamed EDV document is stored as chunks, using WAS chunk addressing
-(see [[[#chunked-resources]]]) against a backend advertising `chunked-streams`:
+A large or streamed EDV document is stored as chunks, using WAS chunk
+addressing (see [[[#chunked-resources]]]) against a server that implements
+[[WAS-EC]]:
 
 1. The client writes the document envelope **first**, as an ordinary Resource
    (satisfying the [[[#store-chunk-operation]]] rule that the parent Resource must
@@ -5790,22 +5771,19 @@ Content search over encrypted documents uses the `blinded-index` query profile
 `indexed` attributes to the envelope and queries them via
 `POST /space/{space_id}/{collection_id}/query`. Blinded-attribute uniqueness
 (`unique: true`) is enforced server-side by that profile (see
-[[[#query-profile-blinded-index]]], *Unique blinded attributes*). Both require a
-backend advertising the `blinded-index-query` feature; a client SHOULD gate their
-use on it.
+[[[#query-profile-blinded-index]]], *Unique blinded attributes*). Both require
+a server whose WAS-EC version entry advertises `blinded-index-query` (see
+[[[#service-description-data-model]]]); a client SHOULD gate their use on it.
 
 ### What this profile does not provide {#edv-over-was-limits}
 
-Relative to a dedicated EDV server, this profile reaches full parity **only for
-the features whose backend affordances the target backend advertises**, and
-degrades to a client-side floor otherwise:
+Relative to a dedicated EDV server, this profile reaches full parity for the
+affordances a given server advertises, and has these limitations otherwise:
 
-* **Sequence-atomic writes** require `conditional-writes`. Without it, EDV's
-  `previous + 1` guarantee is advisory (last-writer-wins), as described in
-  [[[#edv-over-was-sequence]]].
-* **Server-side blinded-index query** and **`unique: true` enforcement** require
-  `blinded-index-query`. Without it, a client cannot query blinded attributes at
-  the server or rely on it to enforce uniqueness; it must fetch-and-filter
+* **Server-side blinded-index query** and **`unique: true` enforcement**
+  require a server whose WAS-EC version entry advertises
+  `blinded-index-query`. Without it, a client cannot query blinded attributes
+  at the server or rely on it to enforce uniqueness; it must fetch-and-filter
   client-side (or, as the reference codec does, mint restrict-mode document ids
   and keep all searchable metadata inside the envelope), and a uniqueness
   constraint is at best a racy client-side read-then-write.
@@ -5813,9 +5791,9 @@ degrades to a client-side floor otherwise:
   chunk framing (see the security consideration in
   [[[#edv-over-was-chunked-streams]]]).
 
-For a small single-writer Collection (for example, a credential wallet) the floor
-alone is fully usable; a large or multi-writer Collection wants a backend that
-advertises the affordances above.
+For a small single-writer Collection (for example, a credential wallet) these
+limitations rarely matter; a large or multi-writer Collection wants a server
+that advertises the blinded-index affordance above.
 
 </section>
 
